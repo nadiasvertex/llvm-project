@@ -169,6 +169,23 @@ __cmp_iterators_by_values(_ForwardIterator __a, _ForwardIterator __b, _Compare _
     }
 }
 
+// As soon as we cannot call __binary_op in "combiner" we create a wrapper over _Tp to encapsulate __binary_op
+template <typename _Tp, typename _BinaryOp>
+struct _Combiner
+{
+    _Tp __value;
+    _BinaryOp* __bin_op; // Here is a pointer to function because of default ctor
+
+    _Combiner() : __value{}, __bin_op(nullptr) {}
+    _Combiner(const _Tp& value, const _BinaryOp* bin_op) : __value(value), __bin_op(const_cast<_BinaryOp*>(bin_op)) {}
+
+    void
+    operator()(const _Combiner& __obj)
+    {
+        __value = (*__bin_op)(__value, __obj.__value);
+    }
+};
+
 } // namespace __internal
 } // namespace __pstl
 

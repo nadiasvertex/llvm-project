@@ -26,6 +26,17 @@ struct copy_int
     constexpr explicit copy_int(int32_t val = 0) : value(val) {}
     constexpr copy_int(copy_int const& other) : value(other.value), copied_times(other.copied_times) { }
 
+    constexpr copy_int(const copy_int& other)
+    {
+        if (&other == this)
+            copied_times++;
+        else
+        {
+            value = other.value;
+            copied_times = other.copied_times;
+        }
+    }
+
     constexpr copy_int&
     operator=(const copy_int& other)
     {

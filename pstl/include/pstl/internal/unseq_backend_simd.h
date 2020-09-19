@@ -528,23 +528,6 @@ __simd_scan(_InputIterator __first, _Size __n, _OutputIterator __result, _UnaryO
     return std::make_pair(__result + __n, __init);
 }
 
-// As soon as we cannot call __binary_op in "combiner" we create a wrapper over _Tp to encapsulate __binary_op
-template <typename _Tp, typename _BinaryOp>
-struct _Combiner
-{
-    _Tp __value;
-    _BinaryOp* __bin_op; // Here is a pointer to function because of default ctor
-
-    _Combiner() : __value{}, __bin_op(nullptr) {}
-    _Combiner(const _Tp& value, const _BinaryOp* bin_op) : __value(value), __bin_op(const_cast<_BinaryOp*>(bin_op)) {}
-    _Combiner(const _Combiner& __obj) : __value{}, __bin_op(__obj.__bin_op) {}
-
-    void
-    operator()(const _Combiner& __obj)
-    {
-        __value = (*__bin_op)(__value, __obj.__value);
-    }
-};
 
 // Exclusive scan for other binary operations and types
 template <class _InputIterator, class _Size, class _OutputIterator, class _UnaryOperation, class _Tp,
@@ -553,7 +536,7 @@ typename std::enable_if<!is_arithmetic_plus<_Tp, _BinaryOperation>::value, std::
 __simd_scan(_InputIterator __first, _Size __n, _OutputIterator __result, _UnaryOperation __unary_op, _Tp __init,
             _BinaryOperation __binary_op, /*Inclusive*/ std::false_type)
 {
-    typedef _Combiner<_Tp, _BinaryOperation> _CombinerType;
+    typedef __internal::_Combiner<_Tp, _BinaryOperation> _CombinerType;
     _CombinerType __init_{__init, &__binary_op};
 
     _PSTL_PRAGMA_DECLARE_REDUCTION(__bin_op, _CombinerType)
@@ -593,7 +576,7 @@ typename std::enable_if<!is_arithmetic_plus<_Tp, _BinaryOperation>::value, std::
 __simd_scan(_InputIterator __first, _Size __n, _OutputIterator __result, _UnaryOperation __unary_op, _Tp __init,
             _BinaryOperation __binary_op, std::true_type)
 {
-    typedef _Combiner<_Tp, _BinaryOperation> _CombinerType;
+    typedef __internal::_Combiner<_Tp, _BinaryOperation> _CombinerType;
     _CombinerType __init_{__init, &__binary_op};
 
     _PSTL_PRAGMA_DECLARE_REDUCTION(__bin_op, _CombinerType)
