@@ -737,7 +737,7 @@ def AnalyzerNoReturn : InheritableAttr {
 
 def Annotate : InheritableParamAttr {
   let Spellings = [Clang<"annotate">];
-  let Args = [StringArgument<"Annotation">];
+  let Args = [StringArgument<"Annotation">, VariadicExprArgument<"Args">];
   // Ensure that the annotate attribute can be used with
   // '#pragma clang attribute' even though it has no subject list.
   let PragmaAttributeSupport = 1;
@@ -1290,14 +1290,12 @@ def FallThrough : StmtAttr {
 }
 
 def Likely : StmtAttr {
-  // FIXME: Change the date to 201803 once the implementation is finished.
-  let Spellings = [CXX11<"", "likely", 2>, C2x<"clang", "likely">];
+  let Spellings = [CXX11<"", "likely", 201803>, C2x<"clang", "likely">];
   let Documentation = [LikelihoodDocs];
 }
 
 def Unlikely : StmtAttr {
-  // FIXME: Change the date to 201803 once the implementation is finished.
-  let Spellings = [CXX11<"", "unlikely", 2>, C2x<"clang", "unlikely">];
+  let Spellings = [CXX11<"", "unlikely", 201803>, C2x<"clang", "unlikely">];
   let Documentation = [LikelihoodDocs];
 }
 
@@ -2266,6 +2264,14 @@ def PragmaClangRelroSection : InheritableAttr {
   let Spellings = [];
   let Args = [StringArgument<"Name">];
   let Subjects = SubjectList<[GlobalVar], ErrorDiag>;
+  let Documentation = [Undocumented];
+}
+
+def StrictFP : InheritableAttr {
+  // This attribute has no spellings as it is only ever created implicitly.
+  // Function uses strict floating point operations.
+  let Spellings = [];
+  let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
 }
 

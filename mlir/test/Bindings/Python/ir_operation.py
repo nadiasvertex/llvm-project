@@ -1,6 +1,7 @@
 # RUN: %PYTHON %s | FileCheck %s
 
 import gc
+import io
 import itertools
 import mlir
 
@@ -102,6 +103,35 @@ def testTraverseOpRegionBlockIndices():
 run(testTraverseOpRegionBlockIndices)
 
 
+# CHECK-LABEL: TEST: testBlockArgumentList
+def testBlockArgumentList():
+  ctx = mlir.ir.Context()
+  module = ctx.parse_module(r"""
+    func @f1(%arg0: i32, %arg1: f64, %arg2: index) {
+      return
+    }
+  """)
+  func = module.body.operations[0]
+  entry_block = func.regions[0].blocks[0]
+  assert len(entry_block.arguments) == 3
+  # CHECK: Argument 0, type i32
+  # CHECK: Argument 1, type f64
+  # CHECK: Argument 2, type index
+  for arg in entry_block.arguments:
+    print(f"Argument {arg.arg_number}, type {arg.type}")
+    new_type = mlir.ir.IntegerType.get_signless(ctx, 8 * (arg.arg_number + 1))
+    arg.set_type(new_type)
+
+  # CHECK: Argument 0, type i8
+  # CHECK: Argument 1, type i16
+  # CHECK: Argument 2, type i24
+  for arg in entry_block.arguments:
+    print(f"Argument {arg.arg_number}, type {arg.type}")
+
+
+run(testBlockArgumentList)
+
+
 # CHECK-LABEL: TEST: testDetachedOperation
 def testDetachedOperation():
   ctx = mlir.ir.Context()
@@ -122,8 +152,8 @@ def testDetachedOperation():
 run(testDetachedOperation)
 
 
-# CHECK-LABEL: TEST: testOperationInsert
-def testOperationInsert():
+# CHECK-LABEL: TEST: testOperationInsertionPoint
+def testOperationInsertionPoint():
   ctx = mlir.ir.Context()
   ctx.allow_unregistered_dialects = True
   module = ctx.parse_module(r"""
@@ -138,10 +168,11 @@ def testOperationInsert():
   op1 = ctx.create_operation("custom.op1", loc)
   op2 = ctx.create_operation("custom.op2", loc)
 
-  func = module.operation.regions[0].blocks[0].operations[0]
+  func = module.body.operations[0]
   entry_block = func.regions[0].blocks[0]
-  entry_block.operations.insert(0, op1)
-  entry_block.operations.insert(1, op2)
+  ip = mlir.ir.InsertionPoint.at_block_begin(entry_block)
+  ip.insert(op1)
+  ip.insert(op2)
   # CHECK: func @f1
   # CHECK: "custom.op1"()
   # CHECK: "custom.op2"()
@@ -150,13 +181,13 @@ def testOperationInsert():
 
   # Trying to add a previously added op should raise.
   try:
-    entry_block.operations.insert(0, op1)
+    ip.insert(op1)
   except ValueError:
     pass
   else:
     assert False, "expected insert of attached op to raise"
 
-run(testOperationInsert)
+run(testOperationInsertionPoint)
 
 
 # CHECK-LABEL: TEST: testOperationWithRegion
@@ -172,7 +203,8 @@ def testOperationWithRegion():
   # CHECK:   "custom.terminator"() : () -> ()
   # CHECK: }) : () -> ()
   terminator = ctx.create_operation("custom.terminator", loc)
-  block.operations.insert(0, terminator)
+  ip = mlir.ir.InsertionPoint(block)
+  ip.insert(terminator)
   print(op1)
 
   # Now add the whole operation to another op.
@@ -186,9 +218,10 @@ def testOperationWithRegion():
       return %1 : i32
     }
   """)
-  func = module.operation.regions[0].blocks[0].operations[0]
+  func = module.body.operations[0]
   entry_block = func.regions[0].blocks[0]
-  entry_block.operations.insert(0, op1)
+  ip = mlir.ir.InsertionPoint.at_block_begin(entry_block)
+  ip.insert(op1)
   # CHECK: func @f1
   # CHECK: "custom.op1"()
   # CHECK:   "custom.terminator"
@@ -196,3 +229,67 @@ def testOperationWithRegion():
   print(module)
 
 run(testOperationWithRegion)
+
+
+# CHECK-LABEL: TEST: testOperationResultList
+def testOperationResultList():
+  ctx = mlir.ir.Context()
+  module = ctx.parse_module(r"""
+    func @f1() {
+      %0:3 = call @f2() : () -> (i32, f64, index)
+      return
+    }
+    func @f2() -> (i32, f64, index)
+  """)
+  caller = module.body.operations[0]
+  call = caller.regions[0].blocks[0].operations[0]
+  assert len(call.results) == 3
+  # CHECK: Result 0, type i32
+  # CHECK: Result 1, type f64
+  # CHECK: Result 2, type index
+  for res in call.results:
+    print(f"Result {res.result_number}, type {res.type}")
+
+
+run(testOperationResultList)
+
+
+# CHECK-LABEL: TEST: testOperationPrint
+def testOperationPrint():
+  ctx = mlir.ir.Context()
+  module = ctx.parse_module(r"""
+    func @f1(%arg0: i32) -> i32 {
+      %0 = constant dense<[1, 2, 3, 4]> : tensor<4xi32>
+      return %arg0 : i32
+    }
+  """)
+
+  # Test print to stdout.
+  # CHECK: return %arg0 : i32
+  module.operation.print()
+
+  # Test print to text file.
+  f = io.StringIO()
+  # CHECK: <class 'str'>
+  # CHECK: return %arg0 : i32
+  module.operation.print(file=f)
+  str_value = f.getvalue()
+  print(str_value.__class__)
+  print(f.getvalue())
+
+  # Test print to binary file.
+  f = io.BytesIO()
+  # CHECK: <class 'bytes'>
+  # CHECK: return %arg0 : i32
+  module.operation.print(file=f, binary=True)
+  bytes_value = f.getvalue()
+  print(bytes_value.__class__)
+  print(bytes_value)
+
+  # Test get_asm with options.
+  # CHECK: value = opaque<"", "0xDEADBEEF"> : tensor<4xi32>
+  # CHECK: "std.return"(%arg0) : (i32) -> () -:4:7
+  module.operation.print(large_elements_limit=2, enable_debug_info=True,
+      pretty_debug_info=True, print_generic_op_form=True, use_local_scope=True)
+
+run(testOperationPrint)

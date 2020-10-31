@@ -27,6 +27,18 @@ BufferizeTypeConverter::BufferizeTypeConverter() {
   addConversion([](UnrankedTensorType type) -> Type {
     return UnrankedMemRefType::get(type.getElementType(), 0);
   });
+  addSourceMaterialization([](OpBuilder &builder, RankedTensorType type,
+                              ValueRange inputs, Location loc) -> Value {
+    assert(inputs.size() == 1);
+    assert(inputs[0].getType().isa<BaseMemRefType>());
+    return builder.create<TensorLoadOp>(loc, type, inputs[0]);
+  });
+  addTargetMaterialization([](OpBuilder &builder, MemRefType type,
+                              ValueRange inputs, Location loc) -> Value {
+    assert(inputs.size() == 1);
+    assert(inputs[0].getType().isa<TensorType>());
+    return builder.create<TensorToMemrefOp>(loc, type, inputs[0]);
+  });
 }
 
 /// This method tries to decompose a value of a certain type using provided
@@ -58,6 +70,10 @@ BufferizeTypeConverter::getResultConversionKind(Type origin, Type converted) {
     if (auto res = conversion(origin, converted))
       return res.getValue();
   return KeepAsFunctionResult;
+}
+
+void mlir::populateBufferizeMaterializationLegality(ConversionTarget &target) {
+  target.addLegalOp<TensorLoadOp, TensorToMemrefOp>();
 }
 
 //===----------------------------------------------------------------------===//
@@ -132,7 +148,7 @@ public:
   }
 
   /// This method returns the mapping values list. The unknown result values
-  /// that only their indicies are available are replaced with their values.
+  /// that only their indices are available are replaced with their values.
   void getMappingValues(ValueRange valuesToReplaceIndices,
                         SmallVectorImpl<Value> &values) {
     // Append available values to the list.
