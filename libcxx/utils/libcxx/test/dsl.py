@@ -94,9 +94,7 @@ def sourceBuilds(config, source):
   with _makeConfigTest(config) as test:
     with open(test.getSourcePath(), 'w') as sourceFile:
       sourceFile.write(source)
-    out, err, exitCode, timeoutInfo = _executeScriptInternal(test, [
-      "%{cxx} %s %{flags} %{compile_flags} %{link_flags} -o %t.exe"
-    ])
+    out, err, exitCode, timeoutInfo = _executeScriptInternal(test, ['%{build}'])
     _executeScriptInternal(test, ['rm %t.exe'])
     return exitCode == 0
 
@@ -116,15 +114,11 @@ def programOutput(config, program, args=None, testPrefix=''):
     with open(test.getSourcePath(), 'w') as source:
       source.write(program)
     try:
-      _, _, exitCode, _ = _executeScriptInternal(test, [
-        "%{cxx} %s %{flags} %{compile_flags} %{link_flags} -o %t.exe",
-      ])
+      _, _, exitCode, _ = _executeScriptInternal(test, ['%{build}'])
       if exitCode != 0:
         return None
 
-      out, err, exitCode, _ = _executeScriptInternal(test, [
-        "%{{exec}} %t.exe {}".format(' '.join(args))
-      ])
+      out, err, exitCode, _ = _executeScriptInternal(test, ["%{{run}} {}".format(' '.join(args))])
       if exitCode != 0:
         return None
 
@@ -333,6 +327,47 @@ class AddLinkFlag(ConfigAction):
 
   def pretty(self, config, litParams):
     return 'add {} to %{{link_flags}}'.format(self._getFlag(config))
+
+
+class AddOptionalWarningFlag(ConfigAction):
+  """
+  This action adds the given warning flag to the %{compile_flags} substitution,
+  if it is supported by the compiler.
+
+  The flag can be a string or a callable, in which case it is called with the
+  configuration to produce the actual flag (as a string).
+  """
+  def __init__(self, flag):
+    self._getFlag = lambda config: flag(config) if callable(flag) else flag
+
+  def applyTo(self, config):
+    flag = self._getFlag(config)
+    # Use -Werror to make sure we see an error about the flag being unsupported.
+    if hasCompileFlag(config, '-Werror ' + flag):
+      config.substitutions = _addToSubstitution(config.substitutions, '%{compile_flags}', flag)
+
+  def pretty(self, config, litParams):
+    return 'add {} to %{{compile_flags}}'.format(self._getFlag(config))
+
+
+class AddSubstitution(ConfigAction):
+  """
+  This action adds the given substitution to the Lit configuration.
+
+  The substitution can be a string or a callable, in which case it is called
+  with the configuration to produce the actual substitution (as a string).
+  """
+  def __init__(self, key, substitution):
+    self._key = key
+    self._getSub = lambda config: substitution(config) if callable(substitution) else substitution
+
+  def applyTo(self, config):
+    key = self._key
+    sub = self._getSub(config)
+    config.substitutions.append((key, sub))
+
+  def pretty(self, config, litParams):
+    return 'add substitution {} = {}'.format(self._key, self._getSub(config))
 
 
 class Feature(object):

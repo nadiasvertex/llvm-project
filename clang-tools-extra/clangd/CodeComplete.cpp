@@ -503,20 +503,19 @@ private:
 };
 
 // Determine the symbol ID for a Sema code completion result, if possible.
-llvm::Optional<SymbolID> getSymbolID(const CodeCompletionResult &R,
-                                     const SourceManager &SM) {
+SymbolID getSymbolID(const CodeCompletionResult &R, const SourceManager &SM) {
   switch (R.Kind) {
   case CodeCompletionResult::RK_Declaration:
   case CodeCompletionResult::RK_Pattern: {
     // Computing USR caches linkage, which may change after code completion.
     if (hasUnstableLinkage(R.Declaration))
-      return llvm::None;
+      return {};
     return clang::clangd::getSymbolID(R.Declaration);
   }
   case CodeCompletionResult::RK_Macro:
     return clang::clangd::getSymbolID(R.Macro->getName(), R.MacroDefInfo, SM);
   case CodeCompletionResult::RK_Keyword:
-    return None;
+    return {};
   }
   llvm_unreachable("unknown CodeCompletionResult kind");
 }
@@ -1105,7 +1104,7 @@ bool semaCodeComplete(std::unique_ptr<CodeCompleteConsumer> Consumer,
   // overriding the preamble will break sema completion. Fortunately we can just
   // skip all includes in this case; these completions are really simple.
   PreambleBounds PreambleRegion =
-      ComputePreambleBounds(*CI->getLangOpts(), ContentsBuffer.get(), 0);
+      ComputePreambleBounds(*CI->getLangOpts(), *ContentsBuffer, 0);
   bool CompletingInPreamble = PreambleRegion.Size > Input.Offset;
   if (Input.Patch)
     Input.Patch->apply(*CI);
@@ -1586,7 +1585,7 @@ private:
         [&](const CodeCompletionResult &SemaResult) -> const Symbol * {
       if (auto SymID =
               getSymbolID(SemaResult, Recorder->CCSema->getSourceManager())) {
-        auto I = IndexResults.find(*SymID);
+        auto I = IndexResults.find(SymID);
         if (I != IndexResults.end()) {
           UsedIndexResults.insert(&*I);
           return &*I;

@@ -178,13 +178,13 @@ bool ELFAsmParser::ParseDirectiveSymbolAttribute(StringRef Directive, SMLoc) {
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
     while (true) {
       StringRef Name;
-      SMLoc Loc = getTok().getLoc();
+
       if (getParser().parseIdentifier(Name))
         return TokError("expected identifier in directive");
 
       MCSymbol *Sym = getContext().getOrCreateSymbol(Name);
 
-      getStreamer().emitSymbolAttribute(Sym, Attr, Loc);
+      getStreamer().emitSymbolAttribute(Sym, Attr);
 
       if (getLexer().is(AsmToken::EndOfStatement))
         break;
@@ -659,7 +659,9 @@ EndStmt:
     Error(loc, "changed section entsize for " + SectionName +
                    ", expected: " + Twine(Section->getEntrySize()));
 
-  if (getContext().getGenDwarfForAssembly()) {
+  if (getContext().getGenDwarfForAssembly() &&
+      (Section->getFlags() & ELF::SHF_ALLOC) &&
+      (Section->getFlags() & ELF::SHF_EXECINSTR)) {
     bool InsertResult = getContext().addGenDwarfSection(Section);
     if (InsertResult) {
       if (getContext().getDwarfVersion() <= 2)

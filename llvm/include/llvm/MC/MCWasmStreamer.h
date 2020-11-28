@@ -44,8 +44,7 @@ public:
   void emitAssemblerFlag(MCAssemblerFlag Flag) override;
   void emitThumbFunc(MCSymbol *Func) override;
   void emitWeakReference(MCSymbol *Alias, const MCSymbol *Symbol) override;
-  bool emitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute,
-                           SMLoc) override;
+  bool emitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute) override;
   void emitSymbolDesc(MCSymbol *Symbol, unsigned DescValue) override;
   void emitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                         unsigned ByteAlignment) override;
@@ -60,12 +59,8 @@ public:
                     SMLoc Loc = SMLoc()) override;
   void emitTBSSSymbol(MCSection *Section, MCSymbol *Symbol, uint64_t Size,
                       unsigned ByteAlignment = 0) override;
-  void emitValueImpl(const MCExpr *Value, unsigned Size,
-                     SMLoc Loc = SMLoc()) override;
 
   void emitIdent(StringRef IdentString) override;
-
-  void emitValueToAlignment(unsigned, int64_t, unsigned, unsigned) override;
 
   void finishImpl() override;
 

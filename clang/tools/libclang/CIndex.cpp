@@ -3476,7 +3476,7 @@ enum CXErrorCode clang_createTranslationUnit2(CXIndex CIdx,
       ast_filename, CXXIdx->getPCHContainerOperations()->getRawReader(),
       ASTUnit::LoadEverything, Diags, FileSystemOpts, /*UseDebugInfo=*/false,
       CXXIdx->getOnlyLocalDecls(), None, CaptureDiagsKind::All,
-      /*AllowPCHWithCompilerErrors=*/true,
+      /*AllowASTWithCompilerErrors=*/true,
       /*UserFilesAreVolatile=*/true);
   *out_TU = MakeCXTranslationUnit(CXXIdx, std::move(AU));
   return *out_TU ? CXError_Success : CXError_Failure;
@@ -8400,7 +8400,9 @@ CXFile clang_Module_getASTFile(CXModule CXMod) {
   if (!CXMod)
     return nullptr;
   Module *Mod = static_cast<Module *>(CXMod);
-  return const_cast<FileEntry *>(Mod->getASTFile());
+  if (auto File = Mod->getASTFile())
+    return const_cast<FileEntry *>(&File->getFileEntry());
+  return nullptr;
 }
 
 CXModule clang_Module_getParent(CXModule CXMod) {

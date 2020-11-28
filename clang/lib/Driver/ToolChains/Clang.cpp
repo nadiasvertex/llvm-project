@@ -3190,13 +3190,13 @@ static void RenderARCMigrateToolOptions(const Driver &D, const ArgList &Args,
       switch (A->getOption().getID()) {
       default: llvm_unreachable("missed a case");
       case options::OPT_ccc_arcmt_check:
-        CmdArgs.push_back("-arcmt-check");
+        CmdArgs.push_back("-arcmt-action=check");
         break;
       case options::OPT_ccc_arcmt_modify:
-        CmdArgs.push_back("-arcmt-modify");
+        CmdArgs.push_back("-arcmt-action=modify");
         break;
       case options::OPT_ccc_arcmt_migrate:
-        CmdArgs.push_back("-arcmt-migrate");
+        CmdArgs.push_back("-arcmt-action=migrate");
         CmdArgs.push_back("-mt-migrate-directory");
         CmdArgs.push_back(A->getValue());
 
@@ -3379,6 +3379,9 @@ static void RenderModulesOptions(Compilation &C, const Driver &D,
           std::string("-fprebuilt-module-path=") + A->getValue()));
       A->claim();
     }
+    if (Args.hasFlag(options::OPT_fprebuilt_implicit_modules,
+                     options::OPT_fno_prebuilt_implicit_modules, false))
+      CmdArgs.push_back("-fprebuilt-implicit-modules");
     if (Args.hasFlag(options::OPT_fmodules_validate_input_files_content,
                      options::OPT_fno_modules_validate_input_files_content,
                      false))
@@ -4309,9 +4312,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.getLastArg(options::OPT_save_temps_EQ))
     Args.AddLastArg(CmdArgs, options::OPT_save_temps_EQ);
 
-  if (Args.hasFlag(options::OPT_fmemory_profile,
-                   options::OPT_fno_memory_profile, false))
-    Args.AddLastArg(CmdArgs, options::OPT_fmemory_profile);
+  auto *MemProfArg = Args.getLastArg(options::OPT_fmemory_profile,
+                                     options::OPT_fmemory_profile_EQ,
+                                     options::OPT_fno_memory_profile);
+  if (MemProfArg &&
+      !MemProfArg->getOption().matches(options::OPT_fno_memory_profile))
+    MemProfArg->render(Args, CmdArgs);
 
   // Embed-bitcode option.
   // Only white-listed flags below are allowed to be embedded.
@@ -4604,6 +4610,23 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
         A->claim();
       }
     }
+  }
+
+  if (Triple.isOSAIX() && Args.hasArg(options::OPT_maltivec)) {
+    if (Args.hasArg(options::OPT_mabi_EQ_vec_extabi)) {
+      CmdArgs.push_back("-mabi=vec-extabi");
+    } else {
+      D.Diag(diag::err_aix_default_altivec_abi);
+    }
+  }
+
+  if (Arg *A = Args.getLastArg(options::OPT_mabi_EQ_vec_extabi,
+                               options::OPT_mabi_EQ_vec_default)) {
+    if (!Triple.isOSAIX())
+      D.Diag(diag::err_drv_unsupported_opt_for_target)
+          << A->getSpelling() << RawTriple.str();
+    if (!Args.hasArg(options::OPT_maltivec))
+      D.Diag(diag::err_aix_altivec);
   }
 
   if (Arg *A = Args.getLastArg(options::OPT_Wframe_larger_than_EQ)) {
@@ -5313,6 +5336,21 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("default");
     }
   }
+
+  if (!RawTriple.isPS4())
+    if (const Arg *A =
+            Args.getLastArg(options::OPT_fvisibility_from_dllstorageclass,
+                            options::OPT_fno_visibility_from_dllstorageclass)) {
+      if (A->getOption().matches(
+              options::OPT_fvisibility_from_dllstorageclass)) {
+        CmdArgs.push_back("-fvisibility-from-dllstorageclass");
+        Args.AddLastArg(CmdArgs, options::OPT_fvisibility_dllexport_EQ);
+        Args.AddLastArg(CmdArgs, options::OPT_fvisibility_nodllstorageclass_EQ);
+        Args.AddLastArg(CmdArgs, options::OPT_fvisibility_externs_dllimport_EQ);
+        Args.AddLastArg(CmdArgs,
+                        options::OPT_fvisibility_externs_nodllstorageclass_EQ);
+      }
+    }
 
   if (const Arg *A = Args.getLastArg(options::OPT_mignore_xcoff_visibility)) {
     if (Triple.isOSAIX())
@@ -6196,6 +6234,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   HandleAmdgcnLegacyOptions(D, Args, CmdArgs);
+  if (Triple.isAMDGPU()) {
+    if (Args.hasFlag(options::OPT_munsafe_fp_atomics,
+                     options::OPT_mno_unsafe_fp_atomics))
+      CmdArgs.push_back("-munsafe-fp-atomics");
+  }
 
   // For all the host OpenMP offloading compile jobs we need to pass the targets
   // information using -fopenmp-targets= option.
@@ -6341,14 +6384,30 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     }
   }
 
+  if (Arg *A = Args.getLastArg(options::OPT_moutline_atomics,
+                               options::OPT_mno_outline_atomics)) {
+    if (A->getOption().matches(options::OPT_moutline_atomics)) {
+      // Option -moutline-atomics supported for AArch64 target only.
+      if (!Triple.isAArch64()) {
+        D.Diag(diag::warn_drv_moutline_atomics_unsupported_opt)
+            << Triple.getArchName();
+      } else {
+        CmdArgs.push_back("-target-feature");
+        CmdArgs.push_back("+outline-atomics");
+      }
+    } else {
+      CmdArgs.push_back("-target-feature");
+      CmdArgs.push_back("-outline-atomics");
+    }
+  }
+
   if (Args.hasFlag(options::OPT_faddrsig, options::OPT_fno_addrsig,
                    (TC.getTriple().isOSBinFormatELF() ||
                     TC.getTriple().isOSBinFormatCOFF()) &&
-                      !TC.getTriple().isPS4() &&
-                      !TC.getTriple().isOSNetBSD() &&
-                      !Distro(D.getVFS(), TC.getTriple()).IsGentoo() &&
-                      !TC.getTriple().isAndroid() &&
-                       TC.useIntegratedAs()))
+                       !TC.getTriple().isPS4() && !TC.getTriple().isVE() &&
+                       !TC.getTriple().isOSNetBSD() &&
+                       !Distro(D.getVFS(), TC.getTriple()).IsGentoo() &&
+                       !TC.getTriple().isAndroid() && TC.useIntegratedAs()))
     CmdArgs.push_back("-faddrsig");
 
   if (Arg *A = Args.getLastArg(options::OPT_fsymbol_partition_EQ)) {
@@ -7166,9 +7225,16 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back(Input.getFilename());
 
   const char *Exec = getToolChain().getDriver().getClangProgramPath();
-  C.addCommand(std::make_unique<Command>(JA, *this,
-                                         ResponseFileSupport::AtFileUTF8(),
-                                         Exec, CmdArgs, Inputs, Output));
+  if (D.CC1Main && !D.CCGenDiagnostics) {
+    // Invoke cc1as directly in this process.
+    C.addCommand(std::make_unique<CC1Command>(JA, *this,
+                                              ResponseFileSupport::AtFileUTF8(),
+                                              Exec, CmdArgs, Inputs, Output));
+  } else {
+    C.addCommand(std::make_unique<Command>(JA, *this,
+                                           ResponseFileSupport::AtFileUTF8(),
+                                           Exec, CmdArgs, Inputs, Output));
+  }
 }
 
 // Begin OffloadBundler

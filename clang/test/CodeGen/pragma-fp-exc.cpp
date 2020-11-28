@@ -1,5 +1,7 @@
-// RUN: %clang_cc1 -triple %itanium_abi_triple -emit-llvm -o - %s | FileCheck --check-prefix=CHECK-DEF %s
-// RUN: %clang_cc1 -triple %itanium_abi_triple -ffp-exception-behavior=strict -emit-llvm -o - %s | FileCheck --check-prefix=CHECK-STRICT %s
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -emit-llvm -o - %s | FileCheck --check-prefix=CHECK-DEF %s
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -ffp-exception-behavior=strict -emit-llvm -o - %s | FileCheck --check-prefix=CHECK-STRICT %s
+
+// REQUIRES: x86-registered-target
 
 float func_01(float x, float y, float z) {
   float res = x + y;

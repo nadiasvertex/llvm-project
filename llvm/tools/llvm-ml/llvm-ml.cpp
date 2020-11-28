@@ -184,6 +184,7 @@ static int AsLexInput(SourceMgr &SrcMgr, MCAsmInfo &MAI, raw_ostream &OS) {
   Lexer.setLexMasmIntegers(true);
   Lexer.useMasmDefaultRadix(true);
   Lexer.setLexMasmHexFloats(true);
+  Lexer.setLexMasmStrings(true);
 
   bool Error = false;
   while (Lexer.Lex().isNot(AsmToken::Eof)) {
@@ -216,6 +217,7 @@ static int AssembleInput(const char *ProgName, const Target *TheTarget,
   Parser->getLexer().setLexMasmIntegers(true);
   Parser->getLexer().useMasmDefaultRadix(true);
   Parser->getLexer().setLexMasmHexFloats(true);
+  Parser->getLexer().setLexMasmStrings(true);
 
   int Res = Parser->Run(/*NoInitialTextSection=*/true);
 
@@ -313,8 +315,11 @@ int main(int argc, char **argv) {
   std::unique_ptr<MCStreamer> Str;
 
   std::unique_ptr<MCInstrInfo> MCII(TheTarget->createMCInstrInfo());
+  assert(MCII && "Unable to create instruction info!");
+
   std::unique_ptr<MCSubtargetInfo> STI(TheTarget->createMCSubtargetInfo(
       TripleName, /*CPU=*/"", /*Features=*/""));
+  assert(STI && "Unable to create subtarget info!");
 
   MCInstPrinter *IP = nullptr;
   if (FileType == OFT_AssemblyFile) {

@@ -21,6 +21,7 @@
 #ifndef LLVM_ANALYSIS_TARGETTRANSFORMINFO_H
 #define LLVM_ANALYSIS_TARGETTRANSFORMINFO_H
 
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
@@ -92,7 +93,7 @@ struct HardwareLoopInfo {
   Loop *L = nullptr;
   BasicBlock *ExitBlock = nullptr;
   BranchInst *ExitBranch = nullptr;
-  const SCEV *ExitCount = nullptr;
+  const SCEV *TripCount = nullptr;
   IntegerType *CountType = nullptr;
   Value *LoopDecrement = nullptr; // Decrement the loop counter by this
                                   // value in every iteration.
@@ -385,6 +386,8 @@ public:
                                   Intrinsic::ID IID) const;
 
   bool isNoopAddrSpaceCast(unsigned FromAS, unsigned ToAS) const;
+
+  unsigned getAssumedAddrSpace(const Value *V) const;
 
   /// Rewrite intrinsic call \p II such that \p OldV will be replaced with \p
   /// NewV, which has a different address space. This should happen for every
@@ -706,6 +709,9 @@ public:
 
   /// Return true if this type is legal.
   bool isTypeLegal(Type *Ty) const;
+
+  /// Returns the estimated number of registers required to represent \p Ty.
+  unsigned getRegUsageForType(Type *Ty) const;
 
   /// Return true if switches should be turned into lookup tables for the
   /// target.
@@ -1092,10 +1098,14 @@ public:
 
   /// \returns The expected cost of compare and select instructions. If there
   /// is an existing instruction that holds Opcode, it may be passed in the
-  /// 'I' parameter.
-  int getCmpSelInstrCost(unsigned Opcode, Type *ValTy, Type *CondTy = nullptr,
-                         TTI::TargetCostKind CostKind = TTI::TCK_RecipThroughput,
-                         const Instruction *I = nullptr) const;
+  /// 'I' parameter. The \p VecPred parameter can be used to indicate the select
+  /// is using a compare with the specified predicate as condition. When vector
+  /// types are passed, \p VecPred must be used for all lanes.
+  int getCmpSelInstrCost(
+      unsigned Opcode, Type *ValTy, Type *CondTy = nullptr,
+      CmpInst::Predicate VecPred = CmpInst::BAD_ICMP_PREDICATE,
+      TTI::TargetCostKind CostKind = TTI::TCK_RecipThroughput,
+      const Instruction *I = nullptr) const;
 
   /// \return The expected cost of vector Insert and Extract.
   /// Use -1 to indicate that there is no information on the index value.
@@ -1379,6 +1389,7 @@ public:
   virtual bool collectFlatAddressOperands(SmallVectorImpl<int> &OpIndexes,
                                           Intrinsic::ID IID) const = 0;
   virtual bool isNoopAddrSpaceCast(unsigned FromAS, unsigned ToAS) const = 0;
+  virtual unsigned getAssumedAddrSpace(const Value *V) const = 0;
   virtual Value *rewriteIntrinsicWithAddressSpace(IntrinsicInst *II,
                                                   Value *OldV,
                                                   Value *NewV) const = 0;
@@ -1442,6 +1453,7 @@ public:
   virtual bool isProfitableToHoist(Instruction *I) = 0;
   virtual bool useAA() = 0;
   virtual bool isTypeLegal(Type *Ty) = 0;
+  virtual unsigned getRegUsageForType(Type *Ty) = 0;
   virtual bool shouldBuildLookupTables() = 0;
   virtual bool shouldBuildLookupTablesForConstant(Constant *C) = 0;
   virtual bool useColdCCForColdCall(Function &F) = 0;
@@ -1534,6 +1546,7 @@ public:
   virtual int getCFInstrCost(unsigned Opcode,
                              TTI::TargetCostKind CostKind) = 0;
   virtual int getCmpSelInstrCost(unsigned Opcode, Type *ValTy, Type *CondTy,
+                                 CmpInst::Predicate VecPred,
                                  TTI::TargetCostKind CostKind,
                                  const Instruction *I) = 0;
   virtual int getVectorInstrCost(unsigned Opcode, Type *Val,
@@ -1671,6 +1684,10 @@ public:
     return Impl.isNoopAddrSpaceCast(FromAS, ToAS);
   }
 
+  unsigned getAssumedAddrSpace(const Value *V) const override {
+    return Impl.getAssumedAddrSpace(V);
+  }
+
   Value *rewriteIntrinsicWithAddressSpace(IntrinsicInst *II, Value *OldV,
                                           Value *NewV) const override {
     return Impl.rewriteIntrinsicWithAddressSpace(II, OldV, NewV);
@@ -1801,6 +1818,9 @@ public:
   }
   bool useAA() override { return Impl.useAA(); }
   bool isTypeLegal(Type *Ty) override { return Impl.isTypeLegal(Ty); }
+  unsigned getRegUsageForType(Type *Ty) override {
+    return Impl.getRegUsageForType(Ty);
+  }
   bool shouldBuildLookupTables() override {
     return Impl.shouldBuildLookupTables();
   }
@@ -1975,9 +1995,10 @@ public:
     return Impl.getCFInstrCost(Opcode, CostKind);
   }
   int getCmpSelInstrCost(unsigned Opcode, Type *ValTy, Type *CondTy,
+                         CmpInst::Predicate VecPred,
                          TTI::TargetCostKind CostKind,
                          const Instruction *I) override {
-    return Impl.getCmpSelInstrCost(Opcode, ValTy, CondTy, CostKind, I);
+    return Impl.getCmpSelInstrCost(Opcode, ValTy, CondTy, VecPred, CostKind, I);
   }
   int getVectorInstrCost(unsigned Opcode, Type *Val, unsigned Index) override {
     return Impl.getVectorInstrCost(Opcode, Val, Index);

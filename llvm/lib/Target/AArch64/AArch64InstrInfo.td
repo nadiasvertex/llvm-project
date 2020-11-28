@@ -46,9 +46,6 @@ def HasComplxNum      : Predicate<"Subtarget->hasComplxNum()">,
 def HasNV            : Predicate<"Subtarget->hasNV()">,
                        AssemblerPredicate<(all_of FeatureNV), "nv">;
 
-def HasRASv8_4       : Predicate<"Subtarget->hasRASv8_4()">,
-                       AssemblerPredicate<(all_of FeatureRASv8_4), "rasv8_4">;
-
 def HasMPAM          : Predicate<"Subtarget->hasMPAM()">,
                        AssemblerPredicate<(all_of FeatureMPAM), "mpam">;
 
@@ -1475,8 +1472,16 @@ def SMSUBLrrr : WideMulAccum<1, 0b001, "smsubl", sub, sext>;
 def UMADDLrrr : WideMulAccum<0, 0b101, "umaddl", add, zext>;
 def UMSUBLrrr : WideMulAccum<1, 0b101, "umsubl", sub, zext>;
 
+def : Pat<(i64 (mul (sext_inreg GPR64:$Rn, i32), (sext_inreg GPR64:$Rm, i32))),
+          (SMADDLrrr (EXTRACT_SUBREG $Rn, sub_32), (EXTRACT_SUBREG $Rm, sub_32), XZR)>;
+def : Pat<(i64 (mul (sext_inreg GPR64:$Rn, i32), (sext GPR32:$Rm))),
+          (SMADDLrrr (EXTRACT_SUBREG $Rn, sub_32), $Rm, XZR)>;
 def : Pat<(i64 (mul (sext GPR32:$Rn), (sext GPR32:$Rm))),
           (SMADDLrrr GPR32:$Rn, GPR32:$Rm, XZR)>;
+def : Pat<(i64 (mul (and GPR64:$Rn, 0xFFFFFFFF), (and GPR64:$Rm, 0xFFFFFFFF))),
+          (UMADDLrrr (EXTRACT_SUBREG $Rn, sub_32), (EXTRACT_SUBREG $Rm, sub_32), XZR)>;
+def : Pat<(i64 (mul (and GPR64:$Rn, 0xFFFFFFFF), (zext GPR32:$Rm))),
+          (UMADDLrrr (EXTRACT_SUBREG $Rn, sub_32), $Rm, XZR)>;
 def : Pat<(i64 (mul (zext GPR32:$Rn), (zext GPR32:$Rm))),
           (UMADDLrrr GPR32:$Rn, GPR32:$Rm, XZR)>;
 
@@ -3733,18 +3738,6 @@ def : Pat<(f32 (fma (fneg FPR32:$Rn), FPR32:$Rm, (fneg FPR32:$Ra))),
 def : Pat<(f64 (fma (fneg FPR64:$Rn), FPR64:$Rm, (fneg FPR64:$Ra))),
           (FNMADDDrrr FPR64:$Rn, FPR64:$Rm, FPR64:$Ra)>;
 
-// And here "(-a) + b*(-c)"
-
-let Predicates = [HasNEON, HasFullFP16] in
-def : Pat<(f16 (fma FPR16:$Rn, (fneg FPR16:$Rm), (fneg FPR16:$Ra))),
-          (FNMADDHrrr FPR16:$Rn, FPR16:$Rm, FPR16:$Ra)>;
-
-def : Pat<(f32 (fma FPR32:$Rn, (fneg FPR32:$Rm), (fneg FPR32:$Ra))),
-          (FNMADDSrrr FPR32:$Rn, FPR32:$Rm, FPR32:$Ra)>;
-
-def : Pat<(f64 (fma FPR64:$Rn, (fneg FPR64:$Rm), (fneg FPR64:$Ra))),
-          (FNMADDDrrr FPR64:$Rn, FPR64:$Rm, FPR64:$Ra)>;
-
 //===----------------------------------------------------------------------===//
 // Floating point comparison instructions.
 //===----------------------------------------------------------------------===//
@@ -4061,17 +4054,6 @@ defm FMLA     : SIMDThreeSameVectorFPTied<0, 0, 0b001, "fmla",
             TriOpFrag<(fma node:$RHS, node:$MHS, node:$LHS)> >;
 defm FMLS     : SIMDThreeSameVectorFPTied<0, 1, 0b001, "fmls",
             TriOpFrag<(fma node:$MHS, (fneg node:$RHS), node:$LHS)> >;
-
-// The following def pats catch the case where the LHS of an FMA is negated.
-// The TriOpFrag above catches the case where the middle operand is negated.
-def : Pat<(v2f32 (fma (fneg V64:$Rn), V64:$Rm, V64:$Rd)),
-          (FMLSv2f32 V64:$Rd, V64:$Rn, V64:$Rm)>;
-
-def : Pat<(v4f32 (fma (fneg V128:$Rn), V128:$Rm, V128:$Rd)),
-          (FMLSv4f32 V128:$Rd, V128:$Rn, V128:$Rm)>;
-
-def : Pat<(v2f64 (fma (fneg V128:$Rn), V128:$Rm, V128:$Rd)),
-          (FMLSv2f64 V128:$Rd, V128:$Rn, V128:$Rm)>;
 
 defm FMULX    : SIMDThreeSameVectorFP<0,0,0b011,"fmulx", int_aarch64_neon_fmulx>;
 defm FMUL     : SIMDThreeSameVectorFP<1,0,0b011,"fmul", fmul>;

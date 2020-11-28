@@ -77,8 +77,7 @@ void MCWasmStreamer::emitWeakReference(MCSymbol *Alias,
   Alias->setVariableValue(Value);
 }
 
-bool MCWasmStreamer::emitSymbolAttribute(MCSymbol *S, MCSymbolAttr Attribute,
-                                         SMLoc) {
+bool MCWasmStreamer::emitSymbolAttribute(MCSymbol *S, MCSymbolAttr Attribute) {
   assert(Attribute != MCSA_IndirectSymbol && "indirect symbols not supported");
 
   auto *Symbol = cast<MCSymbolWasm>(S);
@@ -147,18 +146,6 @@ void MCWasmStreamer::emitELFSize(MCSymbol *Symbol, const MCExpr *Value) {
 void MCWasmStreamer::emitLocalCommonSymbol(MCSymbol *S, uint64_t Size,
                                            unsigned ByteAlignment) {
   llvm_unreachable("Local common symbols are not yet implemented for Wasm");
-}
-
-void MCWasmStreamer::emitValueImpl(const MCExpr *Value, unsigned Size,
-                                   SMLoc Loc) {
-  MCObjectStreamer::emitValueImpl(Value, Size, Loc);
-}
-
-void MCWasmStreamer::emitValueToAlignment(unsigned ByteAlignment, int64_t Value,
-                                          unsigned ValueSize,
-                                          unsigned MaxBytesToEmit) {
-  MCObjectStreamer::emitValueToAlignment(ByteAlignment, Value, ValueSize,
-                                         MaxBytesToEmit);
 }
 
 void MCWasmStreamer::emitIdent(StringRef IdentString) {

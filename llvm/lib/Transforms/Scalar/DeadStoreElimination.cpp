@@ -275,7 +275,7 @@ static MemoryLocation getLocForWrite(Instruction *Inst,
     default:
       return MemoryLocation(); // Unhandled intrinsic.
     case Intrinsic::init_trampoline:
-      return MemoryLocation(II->getArgOperand(0));
+      return MemoryLocation::getAfter(II->getArgOperand(0));
     case Intrinsic::masked_store:
       return MemoryLocation::getForArgument(II, 1, TLI);
     case Intrinsic::lifetime_end: {
@@ -287,7 +287,7 @@ static MemoryLocation getLocForWrite(Instruction *Inst,
   if (auto *CB = dyn_cast<CallBase>(Inst))
     // All the supported TLI functions so far happen to have dest as their
     // first argument.
-    return MemoryLocation(CB->getArgOperand(0));
+    return MemoryLocation::getAfter(CB->getArgOperand(0));
   return MemoryLocation();
 }
 
@@ -828,7 +828,7 @@ static bool handleFree(CallInst *F, AliasAnalysis *AA,
                        MapVector<Instruction *, bool> &ThrowableInst) {
   bool MadeChange = false;
 
-  MemoryLocation Loc = MemoryLocation(F->getOperand(0));
+  MemoryLocation Loc = MemoryLocation::getAfter(F->getOperand(0));
   SmallVector<BasicBlock *, 16> Blocks;
   Blocks.push_back(F->getParent());
 
@@ -1725,14 +1725,14 @@ struct DSEState {
         case LibFunc_strncpy:
         case LibFunc_strcat:
         case LibFunc_strncat:
-          return {MemoryLocation(CB->getArgOperand(0))};
+          return {MemoryLocation::getAfter(CB->getArgOperand(0))};
         default:
           break;
         }
       }
       switch (CB->getIntrinsicID()) {
       case Intrinsic::init_trampoline:
-        return {MemoryLocation(CB->getArgOperand(0))};
+        return {MemoryLocation::getAfter(CB->getArgOperand(0))};
       case Intrinsic::masked_store:
         return {MemoryLocation::getForArgument(CB, 1, TLI)};
       default:
@@ -1827,7 +1827,8 @@ struct DSEState {
 
     if (auto *CB = dyn_cast<CallBase>(I)) {
       if (isFreeCall(I, &TLI))
-        return {std::make_pair(MemoryLocation(CB->getArgOperand(0)), true)};
+        return {std::make_pair(MemoryLocation::getAfter(CB->getArgOperand(0)),
+                               true)};
     }
 
     return None;
@@ -1857,9 +1858,13 @@ struct DSEState {
         getUnderlyingObject(MaybeTermLoc->first.Ptr))
       return false;
 
+    auto TermLoc = MaybeTermLoc->first;
+    if (MaybeTermLoc->second) {
+      const Value *LocUO = getUnderlyingObject(Loc.Ptr);
+      return BatchAA.isMustAlias(TermLoc.Ptr, LocUO);
+    }
     int64_t InstWriteOffset, DepWriteOffset;
-    return MaybeTermLoc->second ||
-           isOverwrite(MaybeTerm, AccessI, MaybeTermLoc->first, Loc, DL, TLI,
+    return isOverwrite(MaybeTerm, AccessI, TermLoc, Loc, DL, TLI,
                        DepWriteOffset, InstWriteOffset, BatchAA,
                        &F) == OW_Complete;
   }
@@ -2565,7 +2570,7 @@ bool eliminateDeadStoresMemorySSA(Function &F, AliasAnalysis &AA,
         }
         continue;
       }
-      MemoryDef *NextDef = dyn_cast<MemoryDef>(EarlierAccess);
+      auto *NextDef = cast<MemoryDef>(EarlierAccess);
       Instruction *NI = NextDef->getMemoryInst();
       LLVM_DEBUG(dbgs() << " (" << *NI << ")\n");
       ToCheck.insert(NextDef->getDefiningAccess());

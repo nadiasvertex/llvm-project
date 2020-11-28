@@ -143,7 +143,6 @@ class VectorLegalizer {
   void ExpandSADDSUBO(SDNode *Node, SmallVectorImpl<SDValue> &Results);
   void ExpandMULO(SDNode *Node, SmallVectorImpl<SDValue> &Results);
   void ExpandFixedPointDiv(SDNode *Node, SmallVectorImpl<SDValue> &Results);
-  SDValue ExpandStrictFPOp(SDNode *Node);
   void ExpandStrictFPOp(SDNode *Node, SmallVectorImpl<SDValue> &Results);
   void ExpandREM(SDNode *Node, SmallVectorImpl<SDValue> &Results);
 
@@ -490,6 +489,7 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
                                     Node->getOperand(0).getValueType());
     break;
   case ISD::VECREDUCE_SEQ_FADD:
+  case ISD::VECREDUCE_SEQ_FMUL:
     Action = TLI.getOperationAction(Node->getOpcode(),
                                     Node->getOperand(1).getValueType());
     break;
@@ -812,6 +812,15 @@ void VectorLegalizer::Expand(SDNode *Node, SmallVectorImpl<SDValue> &Results) {
       return;
     }
     break;
+  case ISD::SMIN:
+  case ISD::SMAX:
+  case ISD::UMIN:
+  case ISD::UMAX:
+    if (SDValue Expanded = TLI.expandIntMINMAX(Node, DAG)) {
+      Results.push_back(Expanded);
+      return;
+    }
+    break;
   case ISD::UADDO:
   case ISD::USUBO:
     ExpandUADDSUBO(Node, Results);
@@ -875,6 +884,7 @@ void VectorLegalizer::Expand(SDNode *Node, SmallVectorImpl<SDValue> &Results) {
     Results.push_back(TLI.expandVecReduce(Node, DAG));
     return;
   case ISD::VECREDUCE_SEQ_FADD:
+  case ISD::VECREDUCE_SEQ_FMUL:
     Results.push_back(TLI.expandVecReduceSeq(Node, DAG));
     return;
   case ISD::SREM:

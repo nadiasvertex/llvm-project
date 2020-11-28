@@ -216,7 +216,11 @@ bool HardwareLoopInfo::isHardwareLoopCandidate(ScalarEvolution &SE,
     // Note that this block may not be the loop latch block, even if the loop
     // has a latch block.
     ExitBlock = BB;
-    ExitCount = EC;
+    TripCount = SE.getAddExpr(EC, SE.getOne(EC->getType()));
+
+    if (!EC->getType()->isPointerTy() && EC->getType() != CountType)
+      TripCount = SE.getZeroExtendExpr(TripCount, CountType);
+
     break;
   }
 
@@ -295,6 +299,10 @@ bool TargetTransformInfo::collectFlatAddressOperands(
 bool TargetTransformInfo::isNoopAddrSpaceCast(unsigned FromAS,
                                               unsigned ToAS) const {
   return TTIImpl->isNoopAddrSpaceCast(FromAS, ToAS);
+}
+
+unsigned TargetTransformInfo::getAssumedAddrSpace(const Value *V) const {
+  return TTIImpl->getAssumedAddrSpace(V);
 }
 
 Value *TargetTransformInfo::rewriteIntrinsicWithAddressSpace(
@@ -480,6 +488,10 @@ bool TargetTransformInfo::useAA() const { return TTIImpl->useAA(); }
 
 bool TargetTransformInfo::isTypeLegal(Type *Ty) const {
   return TTIImpl->isTypeLegal(Ty);
+}
+
+unsigned TargetTransformInfo::getRegUsageForType(Type *Ty) const {
+  return TTIImpl->getRegUsageForType(Ty);
 }
 
 bool TargetTransformInfo::shouldBuildLookupTables() const {
@@ -807,11 +819,13 @@ int TargetTransformInfo::getCFInstrCost(unsigned Opcode,
 
 int TargetTransformInfo::getCmpSelInstrCost(unsigned Opcode, Type *ValTy,
                                             Type *CondTy,
+                                            CmpInst::Predicate VecPred,
                                             TTI::TargetCostKind CostKind,
                                             const Instruction *I) const {
   assert((I == nullptr || I->getOpcode() == Opcode) &&
          "Opcode should reflect passed instruction.");
-  int Cost = TTIImpl->getCmpSelInstrCost(Opcode, ValTy, CondTy, CostKind, I);
+  int Cost =
+      TTIImpl->getCmpSelInstrCost(Opcode, ValTy, CondTy, VecPred, CostKind, I);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
 }

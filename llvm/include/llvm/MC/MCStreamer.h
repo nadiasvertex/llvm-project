@@ -206,6 +206,7 @@ class MCStreamer {
   std::vector<std::unique_ptr<WinEH::FrameInfo>> WinFrameInfos;
 
   WinEH::FrameInfo *CurrentWinFrameInfo;
+  size_t CurrentProcWinFrameInfoStartIndex;
 
   /// Tracks an index to represent the order a symbol was emitted in.
   /// Zero means we did not emit that symbol.
@@ -214,6 +215,10 @@ class MCStreamer {
   /// This is stack of current and previous section values saved by
   /// PushSection.
   SmallVector<std::pair<MCSectionSubPair, MCSectionSubPair>, 4> SectionStack;
+
+  /// Pointer to the parser's SMLoc if available. This is used to provide
+  /// locations for diagnostics.
+  const SMLoc *StartTokLocPtr = nullptr;
 
   /// The next unique ID to use when creating a WinCFI-related section (.pdata
   /// or .xdata). This ID ensures that we have a one-to-one mapping from
@@ -240,6 +245,8 @@ protected:
     return CurrentWinFrameInfo;
   }
 
+  virtual void EmitWindowsUnwindTables(WinEH::FrameInfo *Frame);
+
   virtual void EmitWindowsUnwindTables();
 
   virtual void emitRawTextImpl(StringRef String);
@@ -257,6 +264,11 @@ public:
 
   void setTargetStreamer(MCTargetStreamer *TS) {
     TargetStreamer.reset(TS);
+  }
+
+  void setStartTokLocPtr(const SMLoc *Loc) { StartTokLocPtr = Loc; }
+  SMLoc getStartTokLoc() const {
+    return StartTokLocPtr ? *StartTokLocPtr : SMLoc();
   }
 
   /// State management
@@ -443,6 +455,10 @@ public:
   /// so we can sort on them later.
   void AssignFragment(MCSymbol *Symbol, MCFragment *Fragment);
 
+  /// Returns the mnemonic for \p MI, if the streamer has access to a
+  /// instruction printer and returns an empty string otherwise.
+  virtual StringRef getMnemonic(MCInst &MI) { return ""; }
+
   /// Emit a label for \p Symbol into the current section.
   ///
   /// This corresponds to an assembler statement such as:
@@ -508,8 +524,8 @@ public:
   virtual void emitWeakReference(MCSymbol *Alias, const MCSymbol *Symbol);
 
   /// Add the given \p Attribute to \p Symbol.
-  virtual bool emitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute,
-                                   SMLoc Loc = SMLoc()) = 0;
+  virtual bool emitSymbolAttribute(MCSymbol *Symbol,
+                                   MCSymbolAttr Attribute) = 0;
 
   /// Set the \p DescValue for the \p Symbol.
   ///
@@ -1055,7 +1071,7 @@ public:
   /// Streamer specific finalization.
   virtual void finishImpl();
   /// Finish emission of machine code.
-  void Finish();
+  void Finish(SMLoc EndLoc = SMLoc());
 
   virtual bool mayHaveInstructions(MCSection &Sec) const { return true; }
 };
