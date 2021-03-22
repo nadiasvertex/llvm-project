@@ -79,7 +79,7 @@ mlir::createSimplifyAffineStructuresPass() {
 void SimplifyAffineStructures::runOnFunction() {
   auto func = getFunction();
   simplifiedAttributes.clear();
-  OwningRewritePatternList patterns;
+  OwningRewritePatternList patterns(func.getContext());
   AffineForOp::getCanonicalizationPatterns(patterns, func.getContext());
   AffineIfOp::getCanonicalizationPatterns(patterns, func.getContext());
   AffineApplyOp::getCanonicalizationPatterns(patterns, func.getContext());
@@ -95,6 +95,6 @@ void SimplifyAffineStructures::runOnFunction() {
     // The simplification of the attribute will likely simplify the op. Try to
     // fold / apply canonicalization patterns when we have affine dialect ops.
     if (isa<AffineForOp, AffineIfOp, AffineApplyOp>(op))
-      applyOpPatternsAndFold(op, frozenPatterns);
+      (void)applyOpPatternsAndFold(op, frozenPatterns);
   });
 }

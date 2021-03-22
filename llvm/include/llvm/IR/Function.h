@@ -268,6 +268,12 @@ public:
         getContext(), AttributeList::FunctionIndex, Kind));
   }
 
+  /// A function will have the "coroutine.presplit" attribute if it's
+  /// a coroutine and has not gone through full CoroSplit pass.
+  bool isPresplitCoroutine() const {
+    return hasFnAttribute("coroutine.presplit");
+  }
+
   enum ProfileCountType { PCT_Invalid, PCT_Real, PCT_Synthetic };
 
   /// Class to represent profile counts.
@@ -380,6 +386,9 @@ public:
   const std::string &getGC() const;
   void setGC(std::string Str);
   void clearGC();
+
+  /// Returns true if the function has ssp, sspstrong, or sspreq fn attrs.
+  bool hasStackProtectorFnAttr() const;
 
   /// adds the attribute to the list of attributes.
   void addAttribute(unsigned i, Attribute::AttrKind Kind);
@@ -615,6 +624,14 @@ public:
     addFnAttr(Attribute::NoFree);
   }
 
+  /// Determine if the call can synchroize with other threads
+  bool hasNoSync() const {
+    return hasFnAttribute(Attribute::NoSync);
+  }
+  void setNoSync() {
+    addFnAttr(Attribute::NoSync);
+  }
+
   /// Determine if the function is known not to recurse, directly or
   /// indirectly.
   bool doesNotRecurse() const {
@@ -630,6 +647,10 @@ public:
            hasFnAttribute(Attribute::WillReturn);
   }
   void setMustProgress() { addFnAttr(Attribute::MustProgress); }
+
+  /// Determine if the function will return.
+  bool willReturn() const { return hasFnAttribute(Attribute::WillReturn); }
+  void setWillReturn() { addFnAttr(Attribute::WillReturn); }
 
   /// True if the ABI mandates (or the user requested) that this
   /// function be in a unwind table.
@@ -859,11 +880,14 @@ public:
 
   /// hasAddressTaken - returns true if there are any uses of this function
   /// other than direct calls or invokes to it, or blockaddress expressions.
-  /// Optionally passes back an offending user for diagnostic purposes and
-  /// ignores callback uses.
+  /// Optionally passes back an offending user for diagnostic purposes,
+  /// ignores callback uses, assume like pointer annotation calls, and
+  /// references in llvm.used and llvm.compiler.used variables.
   ///
   bool hasAddressTaken(const User ** = nullptr,
-                       bool IgnoreCallbackUses = false) const;
+                       bool IgnoreCallbackUses = false,
+                       bool IgnoreAssumeLikeCalls = false,
+                       bool IngoreLLVMUsed = false) const;
 
   /// isDefTriviallyDead - Return true if it is trivially safe to remove
   /// this function definition from the module (because it isn't externally

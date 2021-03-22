@@ -66,7 +66,7 @@ static void insertOpenMPParallel(FuncOp func) {
   SmallVector<scf::ParallelOp, 4> topLevelParallelOps;
   func.walk([&topLevelParallelOps](scf::ParallelOp parallelOp) {
     // Ignore ops that are already within OpenMP parallel construct.
-    if (!parallelOp.getParentOfType<scf::ParallelOp>())
+    if (!parallelOp->getParentOfType<scf::ParallelOp>())
       topLevelParallelOps.push_back(parallelOp);
   });
 
@@ -76,9 +76,9 @@ static void insertOpenMPParallel(FuncOp func) {
     auto omp = builder.create<omp::ParallelOp>(parallelOp.getLoc());
     Block *block = builder.createBlock(&omp.getRegion());
     builder.create<omp::TerminatorOp>(parallelOp.getLoc());
-    block->getOperations().splice(
-        block->begin(), parallelOp.getOperation()->getBlock()->getOperations(),
-        parallelOp.getOperation());
+    block->getOperations().splice(block->begin(),
+                                  parallelOp->getBlock()->getOperations(),
+                                  parallelOp.getOperation());
   }
 }
 
@@ -87,10 +87,10 @@ static LogicalResult applyPatterns(FuncOp func) {
   ConversionTarget target(*func.getContext());
   target.addIllegalOp<scf::ParallelOp>();
   target.addDynamicallyLegalOp<scf::YieldOp>(
-      [](scf::YieldOp op) { return !isa<scf::ParallelOp>(op.getParentOp()); });
+      [](scf::YieldOp op) { return !isa<scf::ParallelOp>(op->getParentOp()); });
   target.addLegalDialect<omp::OpenMPDialect>();
 
-  OwningRewritePatternList patterns;
+  OwningRewritePatternList patterns(func.getContext());
   patterns.insert<ParallelOpLowering>(func.getContext());
   FrozenRewritePatternList frozen(std::move(patterns));
   return applyPartialConversion(func, target, frozen);

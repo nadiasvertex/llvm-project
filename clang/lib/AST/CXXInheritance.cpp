@@ -33,29 +33,6 @@
 
 using namespace clang;
 
-/// Computes the set of declarations referenced by these base
-/// paths.
-void CXXBasePaths::ComputeDeclsFound() {
-  assert(NumDeclsFound == 0 && !DeclsFound &&
-         "Already computed the set of declarations");
-
-  llvm::SmallSetVector<NamedDecl *, 8> Decls;
-  for (paths_iterator Path = begin(), PathEnd = end(); Path != PathEnd; ++Path)
-    Decls.insert(Path->Decls.front());
-
-  NumDeclsFound = Decls.size();
-  DeclsFound = std::make_unique<NamedDecl *[]>(NumDeclsFound);
-  std::copy(Decls.begin(), Decls.end(), DeclsFound.get());
-}
-
-CXXBasePaths::decl_range CXXBasePaths::found_decls() {
-  if (NumDeclsFound == 0)
-    ComputeDeclsFound();
-
-  return decl_range(decl_iterator(DeclsFound.get()),
-                    decl_iterator(DeclsFound.get() + NumDeclsFound));
-}
-
 /// isAmbiguous - Determines whether the set of paths provided is
 /// ambiguous, i.e., there are two or more paths that refer to
 /// different base class subobjects of the same type. BaseType must be
@@ -409,9 +386,9 @@ static bool isOrdinaryMember(const NamedDecl *ND) {
 
 static bool findOrdinaryMember(const CXXRecordDecl *RD, CXXBasePath &Path,
                                DeclarationName Name) {
-  Path.Decls = RD->lookup(Name);
-  for (NamedDecl *ND : Path.Decls)
-    if (isOrdinaryMember(ND))
+  Path.Decls = RD->lookup(Name).begin();
+  for (DeclContext::lookup_iterator I = Path.Decls, E = I.end(); I != E; ++I)
+    if (isOrdinaryMember(*I))
       return true;
 
   return false;
@@ -476,9 +453,10 @@ std::vector<const NamedDecl *> CXXRecordDecl::lookupDependentName(
           },
           Paths, /*LookupInDependent=*/true))
     return Results;
-  for (const NamedDecl *ND : Paths.front().Decls) {
-    if (isOrdinaryMember(ND) && Filter(ND))
-      Results.push_back(ND);
+  for (DeclContext::lookup_iterator I = Paths.front().Decls, E = I.end();
+       I != E; ++I) {
+    if (isOrdinaryMember(*I) && Filter(*I))
+      Results.push_back(*I);
   }
   return Results;
 }

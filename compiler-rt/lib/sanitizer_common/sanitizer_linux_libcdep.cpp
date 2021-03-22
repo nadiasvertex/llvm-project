@@ -183,8 +183,7 @@ __attribute__((unused)) static bool GetLibcVersion(int *major, int *minor,
 #endif
 }
 
-#if !SANITIZER_FREEBSD && !SANITIZER_ANDROID && !SANITIZER_GO && \
-    !SANITIZER_NETBSD && !SANITIZER_SOLARIS
+#if SANITIZER_GLIBC && !SANITIZER_GO
 static uptr g_tls_size;
 
 #ifdef __i386__
@@ -256,7 +255,7 @@ void InitTlsSize() {
 }
 #else
 void InitTlsSize() { }
-#endif
+#endif  // SANITIZER_GLIBC && !SANITIZER_GO
 
 #if (defined(__x86_64__) || defined(__i386__) || defined(__mips__) ||       \
      defined(__aarch64__) || defined(__powerpc64__) || defined(__s390__) || \
@@ -294,8 +293,10 @@ uptr ThreadDescriptorSize() {
       val = FIRST_32_SECOND_64(1168, 2288);
     else if (minor <= 14)
       val = FIRST_32_SECOND_64(1168, 2304);
-    else
+    else if (minor < 32)  // Unknown version
       val = FIRST_32_SECOND_64(1216, 2304);
+    else  // minor == 32
+      val = FIRST_32_SECOND_64(1344, 2496);
   }
 #elif defined(__mips__)
   // TODO(sagarthakur): add more values as per different glibc versions.
@@ -523,10 +524,14 @@ uptr GetTlsSize() {
   uptr addr, size;
   GetTls(&addr, &size);
   return size;
-#elif defined(__mips__) || defined(__powerpc64__) || SANITIZER_RISCV64
+#elif SANITIZER_GLIBC
+#if defined(__mips__) || defined(__powerpc64__) || SANITIZER_RISCV64
   return RoundUpTo(g_tls_size + TlsPreTcbSize(), 16);
 #else
   return g_tls_size;
+#endif
+#else
+  return 0;
 #endif
 }
 #endif
@@ -569,20 +574,12 @@ struct DlIteratePhdrData {
   bool first;
 };
 
-static int dl_iterate_phdr_cb(dl_phdr_info *info, size_t size, void *arg) {
-  DlIteratePhdrData *data = (DlIteratePhdrData*)arg;
-  InternalScopedString module_name(kMaxPathLength);
-  if (data->first) {
-    data->first = false;
-    // First module is the binary itself.
-    ReadBinaryNameCached(module_name.data(), module_name.size());
-  } else if (info->dlpi_name) {
-    module_name.append("%s", info->dlpi_name);
-  }
+static int AddModuleSegments(const char *module_name, dl_phdr_info *info,
+                             InternalMmapVectorNoCtor<LoadedModule> *modules) {
   if (module_name[0] == '\0')
     return 0;
   LoadedModule cur_module;
-  cur_module.set(module_name.data(), info->dlpi_addr);
+  cur_module.set(module_name, info->dlpi_addr);
   for (int i = 0; i < (int)info->dlpi_phnum; i++) {
     const Elf_Phdr *phdr = &info->dlpi_phdr[i];
     if (phdr->p_type == PT_LOAD) {
@@ -594,7 +591,26 @@ static int dl_iterate_phdr_cb(dl_phdr_info *info, size_t size, void *arg) {
                                  writable);
     }
   }
-  data->modules->push_back(cur_module);
+  modules->push_back(cur_module);
+  return 0;
+}
+
+static int dl_iterate_phdr_cb(dl_phdr_info *info, size_t size, void *arg) {
+  DlIteratePhdrData *data = (DlIteratePhdrData *)arg;
+  if (data->first) {
+    InternalMmapVector<char> module_name(kMaxPathLength);
+    data->first = false;
+    // First module is the binary itself.
+    ReadBinaryNameCached(module_name.data(), module_name.size());
+    return AddModuleSegments(module_name.data(), info, data->modules);
+  }
+
+  if (info->dlpi_name) {
+    InternalScopedString module_name;
+    module_name.append("%s", info->dlpi_name);
+    return AddModuleSegments(module_name.data(), info, data->modules);
+  }
+
   return 0;
 }
 
@@ -798,20 +814,13 @@ void LogMessageOnPrintf(const char *str) {
 
 #endif  // SANITIZER_LINUX
 
-#if SANITIZER_LINUX && !SANITIZER_GO
+#if SANITIZER_GLIBC && !SANITIZER_GO
 // glibc crashes when using clock_gettime from a preinit_array function as the
 // vDSO function pointers haven't been initialized yet. __progname is
 // initialized after the vDSO function pointers, so if it exists, is not null
 // and is not empty, we can use clock_gettime.
 extern "C" SANITIZER_WEAK_ATTRIBUTE char *__progname;
-inline bool CanUseVDSO() {
-  // Bionic is safe, it checks for the vDSO function pointers to be initialized.
-  if (SANITIZER_ANDROID)
-    return true;
-  if (&__progname && __progname && *__progname)
-    return true;
-  return false;
-}
+inline bool CanUseVDSO() { return &__progname && __progname && *__progname; }
 
 // MonotonicNanoTime is a timing function that can leverage the vDSO by calling
 // clock_gettime. real_clock_gettime only exists if clock_gettime is
@@ -831,13 +840,13 @@ u64 MonotonicNanoTime() {
   return (u64)ts.tv_sec * (1000ULL * 1000 * 1000) + ts.tv_nsec;
 }
 #else
-// Non-Linux & Go always use the syscall.
+// Non-glibc & Go always use the regular function.
 u64 MonotonicNanoTime() {
   timespec ts;
-  internal_clock_gettime(CLOCK_MONOTONIC, &ts);
+  clock_gettime(CLOCK_MONOTONIC, &ts);
   return (u64)ts.tv_sec * (1000ULL * 1000 * 1000) + ts.tv_nsec;
 }
-#endif  // SANITIZER_LINUX && !SANITIZER_GO
+#endif  // SANITIZER_GLIBC && !SANITIZER_GO
 
 void ReExec() {
   const char *pathname = "/proc/self/exe";

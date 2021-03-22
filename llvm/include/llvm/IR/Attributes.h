@@ -18,6 +18,7 @@
 #include "llvm-c/Types.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Config/llvm-config.h"
@@ -399,6 +400,9 @@ private:
 
   static AttributeList getImpl(LLVMContext &C, ArrayRef<AttributeSet> AttrSets);
 
+  AttributeList setAttributes(LLVMContext &C, unsigned Index,
+                              AttributeSet Attrs) const;
+
 public:
   AttributeList() = default;
 
@@ -753,7 +757,7 @@ template <> struct DenseMapInfo<AttributeList> {
 /// equality, presence of attributes, etc.
 class AttrBuilder {
   std::bitset<Attribute::EndAttrKinds> Attrs;
-  std::map<std::string, std::string, std::less<>> TargetDepAttrs;
+  std::map<SmallString<32>, SmallString<32>, std::less<>> TargetDepAttrs;
   MaybeAlign Alignment;
   MaybeAlign StackAlignment;
   uint64_t DerefBytes = 0;
@@ -918,7 +922,7 @@ public:
   bool empty() const { return Attrs.none(); }
 
   // Iterators for target-dependent attributes.
-  using td_type = std::pair<std::string, std::string>;
+  using td_type = decltype(TargetDepAttrs)::value_type;
   using td_iterator = decltype(TargetDepAttrs)::iterator;
   using td_const_iterator = decltype(TargetDepAttrs)::const_iterator;
   using td_range = iterator_range<td_iterator>;
@@ -938,10 +942,8 @@ public:
 
   bool td_empty() const { return TargetDepAttrs.empty(); }
 
-  bool operator==(const AttrBuilder &B);
-  bool operator!=(const AttrBuilder &B) {
-    return !(*this == B);
-  }
+  bool operator==(const AttrBuilder &B) const;
+  bool operator!=(const AttrBuilder &B) const { return !(*this == B); }
 };
 
 namespace AttributeFuncs {
@@ -953,8 +955,23 @@ AttrBuilder typeIncompatible(Type *Ty);
 /// attributes for inlining purposes.
 bool areInlineCompatible(const Function &Caller, const Function &Callee);
 
+
+/// Checks  if there are any incompatible function attributes between
+/// \p A and \p B.
+///
+/// \param [in] A - The first function to be compared with.
+/// \param [in] B - The second function to be compared with.
+/// \returns true if the functions have compatible attributes.
+bool areOutlineCompatible(const Function &A, const Function &B);
+
 /// Merge caller's and callee's attributes.
 void mergeAttributesForInlining(Function &Caller, const Function &Callee);
+
+/// Merges the functions attributes from \p ToMerge into function \p Base.
+///
+/// \param [in,out] Base - The function being merged into.
+/// \param [in] ToMerge - The function to merge attributes from.
+void mergeAttributesForOutlining(Function &Base, const Function &ToMerge);
 
 } // end namespace AttributeFuncs
 

@@ -31,6 +31,10 @@ def testTraverseOpRegionBlockIterators():
   # CHECK: MODULE REGIONS=1 BLOCKS=1
   print(f"MODULE REGIONS={len(regions)} BLOCKS={len(blocks)}")
 
+  # Should verify.
+  # CHECK: .verify = True
+  print(f".verify = {module.operation.verify()}")
+
   # Get the regions and blocks from the default collections.
   default_regions = list(op)
   default_blocks = list(default_regions[0])
@@ -466,7 +470,7 @@ def testOperationPrint():
   print(bytes_value)
 
   # Test get_asm with options.
-  # CHECK: value = opaque<"", "0xDEADBEEF"> : tensor<4xi32>
+  # CHECK: value = opaque<"_", "0xDEADBEEF"> : tensor<4xi32>
   # CHECK: "std.return"(%arg0) : (i32) -> () -:4:7
   module.operation.print(large_elements_limit=2, enable_debug_info=True,
       pretty_debug_info=True, print_generic_op_form=True, use_local_scope=True)
@@ -474,6 +478,7 @@ def testOperationPrint():
 run(testOperationPrint)
 
 
+# CHECK-LABEL: TEST: testKnownOpView
 def testKnownOpView():
   with Context(), Location.unknown():
     Context.current.allow_unregistered_dialects = True
@@ -487,7 +492,7 @@ def testKnownOpView():
     # addf should map to a known OpView class in the std dialect.
     # We know the OpView for it defines an 'lhs' attribute.
     addf = module.body.operations[2]
-    # CHECK: <mlir.dialects.std._AddFOp object
+    # CHECK: <mlir.dialects._std_ops_gen._AddFOp object
     print(repr(addf))
     # CHECK: "custom.f32"()
     print(addf.lhs)
@@ -503,3 +508,98 @@ def testKnownOpView():
     print(repr(custom))
 
 run(testKnownOpView)
+
+
+# CHECK-LABEL: TEST: testSingleResultProperty
+def testSingleResultProperty():
+  with Context(), Location.unknown():
+    Context.current.allow_unregistered_dialects = True
+    module = Module.parse(r"""
+      "custom.no_result"() : () -> ()
+      %0:2 = "custom.two_result"() : () -> (f32, f32)
+      %1 = "custom.one_result"() : () -> f32
+    """)
+    print(module)
+
+  try:
+    module.body.operations[0].result
+  except ValueError as e:
+    # CHECK: Cannot call .result on operation custom.no_result which has 0 results
+    print(e)
+  else:
+    assert False, "Expected exception"
+
+  try:
+    module.body.operations[1].result
+  except ValueError as e:
+    # CHECK: Cannot call .result on operation custom.two_result which has 2 results
+    print(e)
+  else:
+    assert False, "Expected exception"
+
+  # CHECK: %1 = "custom.one_result"() : () -> f32
+  print(module.body.operations[2])
+
+run(testSingleResultProperty)
+
+# CHECK-LABEL: TEST: testPrintInvalidOperation
+def testPrintInvalidOperation():
+  ctx = Context()
+  with Location.unknown(ctx):
+    module = Operation.create("module", regions=1)
+    # This block does not have a terminator, it may crash the custom printer.
+    # Verify that we fallback to the generic printer for safety.
+    block = module.regions[0].blocks.append()
+    # CHECK: // Verification failed, printing generic form
+    # CHECK: "module"() ( {
+    # CHECK: }) : () -> ()
+    print(module)
+    # CHECK: .verify = False
+    print(f".verify = {module.operation.verify()}")
+run(testPrintInvalidOperation)
+
+
+# CHECK-LABEL: TEST: testCreateWithInvalidAttributes
+def testCreateWithInvalidAttributes():
+  ctx = Context()
+  with Location.unknown(ctx):
+    try:
+      Operation.create("module", attributes={None:StringAttr.get("name")})
+    except Exception as e:
+      # CHECK: Invalid attribute key (not a string) when attempting to create the operation "module"
+      print(e)
+    try:
+      Operation.create("module", attributes={42:StringAttr.get("name")})
+    except Exception as e:
+      # CHECK: Invalid attribute key (not a string) when attempting to create the operation "module"
+      print(e)
+    try:
+      Operation.create("module", attributes={"some_key":ctx})
+    except Exception as e:
+      # CHECK: Invalid attribute value for the key "some_key" when attempting to create the operation "module"
+      print(e)
+    try:
+      Operation.create("module", attributes={"some_key":None})
+    except Exception as e:
+      # CHECK: Found an invalid (`None`?) attribute value for the key "some_key" when attempting to create the operation "module"
+      print(e)
+run(testCreateWithInvalidAttributes)
+
+
+# CHECK-LABEL: TEST: testOperationName
+def testOperationName():
+  ctx = Context()
+  ctx.allow_unregistered_dialects = True
+  module = Module.parse(r"""
+    %0 = "custom.op1"() : () -> f32
+    %1 = "custom.op2"() : () -> i32
+    %2 = "custom.op1"() : () -> f32
+  """, ctx)
+
+  # CHECK: custom.op1
+  # CHECK: custom.op2
+  # CHECK: custom.op1
+  for op in module.body.operations:
+    print(op.operation.name)
+
+run(testOperationName)

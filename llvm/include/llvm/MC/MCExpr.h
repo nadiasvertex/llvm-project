@@ -224,6 +224,7 @@ public:
     VK_WEAKREF, // The link between the symbols in .weakref foo, bar
 
     VK_X86_ABS8,
+    VK_X86_PLTOFF,
 
     VK_ARM_NONE,
     VK_ARM_GOT_PREL,
@@ -241,6 +242,7 @@ public:
     VK_AVR_DIFF8,
     VK_AVR_DIFF16,
     VK_AVR_DIFF32,
+    VK_AVR_PM,
 
     VK_PPC_LO,              // symbol@l
     VK_PPC_HI,              // symbol@h

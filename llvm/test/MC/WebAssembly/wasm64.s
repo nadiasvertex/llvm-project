@@ -1,5 +1,5 @@
-# RUN: llvm-mc -triple=wasm64-unknown-unknown -mattr=+atomics,+unimplemented-simd128,+nontrapping-fptoint,+exception-handling < %s | FileCheck %s
-# RUN: llvm-mc -triple=wasm64-unknown-unknown -filetype=obj -mattr=+atomics,+unimplemented-simd128,+nontrapping-fptoint,+exception-handling -o - < %s | obj2yaml | FileCheck %s -check-prefix=BIN
+# RUN: llvm-mc -triple=wasm64-unknown-unknown -mattr=+atomics,+simd128,+nontrapping-fptoint,+exception-handling < %s | FileCheck %s
+# RUN: llvm-mc -triple=wasm64-unknown-unknown -filetype=obj -mattr=+atomics,+simd128,+nontrapping-fptoint,+exception-handling -o - < %s | obj2yaml | FileCheck %s -check-prefix=BIN
 
 # Most of our other tests are for wasm32, this one adds some wasm64 specific tests.
 
@@ -201,7 +201,7 @@ test:
 # BIN-NEXT:       - SectionOffset:   6
 # BIN-NEXT:         InitFlags:       0
 # BIN-NEXT:         Offset:
-# BIN-NEXT:           Opcode:          I32_CONST
+# BIN-NEXT:           Opcode:          I64_CONST
 # BIN-NEXT:           Value:           0
 # BIN-NEXT:         Content:         48656C6C6F2C20576F726C64212121000000000000000000
 # BIN-NEXT:   - Type:            CUSTOM

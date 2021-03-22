@@ -18,8 +18,8 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dominance.h"
-#include "mlir/IR/Function.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -120,6 +120,24 @@ protected:
   Liveness liveness;
 };
 
+namespace memref {
+class GlobalOp;
+} // namespace memref
+
+// Support class to create global ops for tensor-valued constants in the
+// program. Globals are created lazily at the top of the `moduleOp` with pretty
+// names. Duplicates are avoided.
+class GlobalCreator {
+public:
+  explicit GlobalCreator(ModuleOp module) : moduleOp(module) {}
+  memref::GlobalOp getGlobalFor(ConstantOp constantOp);
+
+private:
+  ModuleOp moduleOp;
+  // This could use memref::GlobalOp key but we avoid introducing a new
+  // dependence to the memref dialect for this.
+  DenseMap<Attribute, Operation *> globals;
+};
 } // end namespace mlir
 
 #endif // MLIR_TRANSFORMS_BUFFERUTILS_H

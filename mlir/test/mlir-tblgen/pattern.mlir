@@ -5,8 +5,8 @@ func @verifyFusedLocs(%arg0 : i32) -> i32 {
   %0 = "test.op_a"(%arg0) {attr = 10 : i32} : (i32) -> i32 loc("a")
   %result = "test.op_a"(%0) {attr = 20 : i32} : (i32) -> i32 loc("b")
 
-  // CHECK: "test.op_b"(%arg0) {attr = 10 : i32} : (i32) -> i32 loc("a")
-  // CHECK: "test.op_b"(%arg0) {attr = 20 : i32} : (i32) -> i32 loc(fused["b", "a"])
+  // CHECK: %0 = "test.op_b"(%arg0) {attr = 10 : i32} : (i32) -> i32 loc("a")
+  // CHECK: %1 = "test.op_b"(%0) {attr = 20 : i32} : (i32) -> i32 loc("b")
   return %result : i32
 }
 
@@ -67,7 +67,7 @@ func @verifyBenefit(%arg0 : i32) -> i32 {
   %2 = "test.op_g"(%1) : (i32) -> i32
 
   // CHECK: "test.op_f"(%arg0)
-  // CHECK: "test.op_b"(%arg0) {attr = 34 : i32}
+  // CHECK: "test.op_b"(%arg0) {attr = 20 : i32}
   return %0 : i32
 }
 
@@ -254,7 +254,7 @@ func @verifyUnitAttr() -> (i32, i32) {
 
 // CHECK-LABEL: testConstOp
 func @testConstOp() -> (i32) {
-  // CHECK-NEXT: [[C0:%.+]] = constant 1
+  // CHECK-NEXT: [[C0:%.+]] = "test.constant"() {value = 1
   %0 = "test.constant"() {value = 1 : i32} : () -> i32
 
   // CHECK-NEXT: return [[C0]]
@@ -263,7 +263,7 @@ func @testConstOp() -> (i32) {
 
 // CHECK-LABEL: testConstOpUsed
 func @testConstOpUsed() -> (i32) {
-  // CHECK-NEXT: [[C0:%.+]] = constant 1
+  // CHECK-NEXT: [[C0:%.+]] = "test.constant"() {value = 1
   %0 = "test.constant"() {value = 1 : i32} : () -> i32
 
   // CHECK-NEXT: [[V0:%.+]] = "test.op_s"([[C0]])
@@ -275,7 +275,7 @@ func @testConstOpUsed() -> (i32) {
 
 // CHECK-LABEL: testConstOpReplaced
 func @testConstOpReplaced() -> (i32) {
-  // CHECK-NEXT: [[C0:%.+]] = constant 1
+  // CHECK-NEXT: [[C0:%.+]] = "test.constant"() {value = 1
   %0 = "test.constant"() {value = 1 : i32} : () -> i32
   %1 = "test.constant"() {value = 2 : i32} : () -> i32
 
@@ -288,10 +288,10 @@ func @testConstOpReplaced() -> (i32) {
 
 // CHECK-LABEL: testConstOpMatchFailure
 func @testConstOpMatchFailure() -> (i64) {
-  // CHECK-DAG: [[C0:%.+]] = constant 1
+  // CHECK-DAG: [[C0:%.+]] = "test.constant"() {value = 1
   %0 = "test.constant"() {value = 1 : i64} : () -> i64
 
-  // CHECK-DAG: [[C1:%.+]] = constant 2
+  // CHECK-DAG: [[C1:%.+]] = "test.constant"() {value = 2
   %1 = "test.constant"() {value = 2 : i64} : () -> i64
 
   // CHECK: [[V0:%.+]] = "test.op_r"([[C0]], [[C1]])
@@ -303,7 +303,7 @@ func @testConstOpMatchFailure() -> (i64) {
 
 // CHECK-LABEL: testConstOpMatchNonConst
 func @testConstOpMatchNonConst(%arg0 : i32) -> (i32) {
-  // CHECK-DAG: [[C0:%.+]] = constant 1
+  // CHECK-DAG: [[C0:%.+]] = "test.constant"() {value = 1
   %0 = "test.constant"() {value = 1 : i32} : () -> i32
 
   // CHECK: [[V0:%.+]] = "test.op_r"([[C0]], %arg0)

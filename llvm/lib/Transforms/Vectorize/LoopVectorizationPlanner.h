@@ -142,6 +142,10 @@ public:
     return createInstruction(Instruction::BinaryOps::Or, {LHS, RHS});
   }
 
+  VPValue *createSelect(VPValue *Cond, VPValue *TrueVal, VPValue *FalseVal) {
+    return createNaryOp(Instruction::Select, {Cond, TrueVal, FalseVal});
+  }
+
   //===--------------------------------------------------------------------===//
   // RAII helpers.
   //===--------------------------------------------------------------------===//
@@ -184,6 +188,10 @@ struct VectorizationFactor {
   bool operator==(const VectorizationFactor &rhs) const {
     return Width == rhs.Width && Cost == rhs.Cost;
   }
+
+  bool operator!=(const VectorizationFactor &rhs) const {
+    return !(*this == rhs);
+  }
 };
 
 /// Planner drives the vectorization process after having passed
@@ -213,18 +221,6 @@ class LoopVectorizationPlanner {
   PredicatedScalarEvolution &PSE;
 
   SmallVector<VPlanPtr, 4> VPlans;
-
-  /// This class is used to enable the VPlan to invoke a method of ILV. This is
-  /// needed until the method is refactored out of ILV and becomes reusable.
-  struct VPCallbackILV : public VPCallback {
-    InnerLoopVectorizer &ILV;
-
-    VPCallbackILV(InnerLoopVectorizer &ILV) : ILV(ILV) {}
-
-    Value *getOrCreateVectorValues(Value *V, unsigned Part) override;
-    Value *getOrCreateScalarValue(Value *V,
-                                  const VPIteration &Instance) override;
-  };
 
   /// A builder used to construct the current plan.
   VPBuilder Builder;
@@ -260,9 +256,18 @@ public:
   /// best selected VPlan.
   void executePlan(InnerLoopVectorizer &LB, DominatorTree *DT);
 
-  void printPlans(raw_ostream &O) {
-    for (const auto &Plan : VPlans)
-      O << *Plan;
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+  void printPlans(raw_ostream &O);
+#endif
+
+  /// Look through the existing plans and return true if we have one with all
+  /// the vectorization factors in question.
+  bool hasPlanWithVFs(const ArrayRef<ElementCount> VFs) const {
+    return any_of(VPlans, [&](const VPlanPtr &Plan) {
+      return all_of(VFs, [&](const ElementCount &VF) {
+        return Plan->hasVF(VF);
+      });
+    });
   }
 
   /// Test a \p Predicate on a \p Range of VF's. Return the value of applying

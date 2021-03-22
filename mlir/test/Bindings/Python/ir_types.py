@@ -59,6 +59,21 @@ def testTypeEq():
 run(testTypeEq)
 
 
+# CHECK-LABEL: TEST: testTypeIsInstance
+def testTypeIsInstance():
+  ctx = Context()
+  t1 = Type.parse("i32", ctx)
+  t2 = Type.parse("f32", ctx)
+  # CHECK: True
+  print(IntegerType.isinstance(t1))
+  # CHECK: False
+  print(F32Type.isinstance(t1))
+  # CHECK: True
+  print(F32Type.isinstance(t2))
+
+run(testTypeIsInstance)
+
+
 # CHECK-LABEL: TEST: testTypeEqDoesNotRaise
 def testTypeEqDoesNotRaise():
   ctx = Context()
@@ -72,6 +87,20 @@ def testTypeEqDoesNotRaise():
   print(t1 != None)
 
 run(testTypeEqDoesNotRaise)
+
+
+# CHECK-LABEL: TEST: testTypeCapsule
+def testTypeCapsule():
+  with Context() as ctx:
+    t1 = Type.parse("i32", ctx)
+  # CHECK: mlir.ir.Type._CAPIPtr
+  type_capsule = t1._CAPIPtr
+  print(type_capsule)
+  t2 = Type._CAPICreate(type_capsule)
+  assert t2 == t1
+  assert t2.context is ctx
+
+run(testTypeCapsule)
 
 
 # CHECK-LABEL: TEST: testStandardTypeCasts
@@ -183,10 +212,11 @@ def testComplexType():
 
 run(testComplexType)
 
+
 # CHECK-LABEL: TEST: testConcreteShapedType
-# Shaped type is not a kind of standard types, it is the base class for
-# vectors, memrefs and tensors, so this test case uses an instance of vector
-# to test the shaped type. The class hierarchy is preserved on the python side.
+# Shaped type is not a kind of builtin types, it is the base class for vectors,
+# memrefs and tensors, so this test case uses an instance of vector to test the
+# shaped type. The class hierarchy is preserved on the python side.
 def testConcreteShapedType():
   with Context() as ctx:
     vector = VectorType(Type.parse("vector<2x3xf32>"))
@@ -311,17 +341,27 @@ def testMemRefType():
     f32 = F32Type.get()
     shape = [2, 3]
     loc = Location.unknown()
-    memref = MemRefType.get_contiguous_memref(f32, shape, 2)
+    memref = MemRefType.get(shape, f32, memory_space=Attribute.parse("2"))
     # CHECK: memref type: memref<2x3xf32, 2>
     print("memref type:", memref)
     # CHECK: number of affine layout maps: 0
-    print("number of affine layout maps:", memref.num_affine_maps)
+    print("number of affine layout maps:", len(memref.layout))
     # CHECK: memory space: 2
     print("memory space:", memref.memory_space)
 
+    layout = AffineMap.get_permutation([1, 0])
+    memref_layout = MemRefType.get(shape, f32, [layout])
+    # CHECK: memref type: memref<2x3xf32, affine_map<(d0, d1) -> (d1, d0)>>
+    print("memref type:", memref_layout)
+    assert len(memref_layout.layout) == 1
+    # CHECK: memref layout: (d0, d1) -> (d1, d0)
+    print("memref layout:", memref_layout.layout[0])
+    # CHECK: memory space: <<NULL ATTRIBUTE>>
+    print("memory space:", memref_layout.memory_space)
+
     none = NoneType.get()
     try:
-      memref_invalid = MemRefType.get_contiguous_memref(none, shape, 2)
+      memref_invalid = MemRefType.get(shape, none)
     except ValueError as e:
       # CHECK: invalid 'Type(none)' and expected floating point, integer, vector
       # CHECK: or complex type.
@@ -336,7 +376,7 @@ def testUnrankedMemRefType():
   with Context(), Location.unknown():
     f32 = F32Type.get()
     loc = Location.unknown()
-    unranked_memref = UnrankedMemRefType.get(f32, 2)
+    unranked_memref = UnrankedMemRefType.get(f32, Attribute.parse("2"))
     # CHECK: unranked memref type: memref<*xf32, 2>
     print("unranked memref type:", unranked_memref)
     try:
@@ -363,7 +403,7 @@ def testUnrankedMemRefType():
 
     none = NoneType.get()
     try:
-      memref_invalid = UnrankedMemRefType.get(none, 2)
+      memref_invalid = UnrankedMemRefType.get(none, Attribute.parse("2"))
     except ValueError as e:
       # CHECK: invalid 'Type(none)' and expected floating point, integer, vector
       # CHECK: or complex type.
