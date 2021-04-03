@@ -553,16 +553,16 @@ struct _MinKItems
 {
     using _MinKVector = std::vector<_RandomAccessIterator>;
     _MinKVector __smallest_k_items;
-    typename _MinKVector::iterator __largest_item;
+    std::size_t __largest_item;
 
     bool
-    __empty()
+    __empty() const
     {
         return __smallest_k_items.empty();
     }
 
     auto
-    __size()
+    __size() const
     {
         return std::size(__smallest_k_items);
     }
@@ -571,6 +571,18 @@ struct _MinKItems
     __resize(std::size_t new_size)
     {
         __smallest_k_items.resize(new_size);
+    }
+
+    auto
+    __get_largest_item() const
+    {
+        return __smallest_k_items[__largest_item];
+    }
+
+    auto
+    __set_largest_item(_RandomAccessIterator it)
+    {
+        __smallest_k_items[__largest_item] = it;
     }
 };
 
@@ -586,20 +598,20 @@ struct _MinKOp
     __keep_smallest_k_items(_RandomAccessIterator __item)
     {
         // If the new item is larger than the largest item in the list, discard it.
-        if (__comp(**__items.__largest_item, *__item))
+        if (__comp(*__items.__get_largest_item(), *__item))
         {
             return;
         }
 
         // If thew new item is equal to the largest item in the list, discard it.
-        if (!__comp(*__item, **__items.__largest_item))
+        if (!__comp(*__item, *__items.__get_largest_item()))
         {
             return;
         }
 
         // The new item is smaller than the largest item. Replace the largest item
         // with the new item.
-        *__items.__largest_item = __item;
+        __items.__set_largest_item(__item);
 
         // Find the new largest item.
         __update_largest_item();
@@ -608,9 +620,9 @@ struct _MinKOp
     void
     __update_largest_item()
     {
-        __items.__largest_item =
-            std::max_element(std::begin(__items.__smallest_k_items), std::end(__items.__smallest_k_items),
-                             [this](const auto& l, const auto& r) { return __comp(*l, *r); });
+        auto pos = std::max_element(std::begin(__items.__smallest_k_items), std::end(__items.__smallest_k_items),
+                                    [this](const auto& l, const auto& r) { return __comp(*l, *r); });
+        __items.__largest_item = std::distance(std::begin(__items.__smallest_k_items), pos);
     }
 
     void
@@ -620,6 +632,7 @@ struct _MinKOp
         {
             __keep_smallest_k_items(*__it);
         }
+        __update_largest_item();
     }
 
     void
@@ -627,10 +640,12 @@ struct _MinKOp
     {
         __items.__resize(__k);
         auto __item_it = __first;
-        for (auto __tracking_it = begin(__items.__smallest_k_items);
-             __item_it != __last && __tracking_it != end(__items.__smallest_k_items); ++__item_it, ++__tracking_it)
+        auto __tracking_it = __items.__smallest_k_items.begin();
+        while( __item_it != __last && __tracking_it != __items.__smallest_k_items.end())
         {
             *__tracking_it = __item_it;
+            ++__item_it;
+            ++__tracking_it;
         }
         __update_largest_item();
         for (; __item_it != __last; ++__item_it)
@@ -720,7 +735,7 @@ __parallel_find_pivot(_RandomAccessIterator __first, _RandomAccessIterator __las
     auto __reduce_value = [&](auto& __v1, auto& __v2) { return _Op::__reduce(__v1, __v2, __comp); };
     auto __result = __parallel_reduce_chunks<_Value>(0, __n_chunks, __reduce_chunk, __reduce_value);
 
-    return *__result.__largest_item;
+    return __result.__get_largest_item();
 }
 
 template <typename _RandomAccessIterator, typename _Compare>
@@ -775,7 +790,7 @@ __parallel_partition(_RandomAccessIterator __xs, _RandomAccessIterator __xe, _Ra
             {
                 auto __current_item = std::next(__xs, __index);
                 auto __swap_item = std::next(__xs, __swap_index);
-                std::swap(__current_item, __swap_item);
+                std::iter_swap(__current_item, __swap_item);
                 break;
             }
         }
@@ -866,30 +881,32 @@ __parallel_stable_partial_sort(_RandomAccessIterator __xs, _RandomAccessIterator
 {
     auto __pivot = __parallel_find_pivot(__xs, __xe, __comp, __nsort);
     __parallel_partition(__xs, __xe, __pivot, __comp, __nsort);
+    auto __part_end = std::next(__xs, __nsort);
 
     if (__nsort <= __default_chunk_size)
     {
-        __leaf_sort(__xs, __pivot, __comp);
+        __leaf_sort(__xs, __part_end, __comp);
     }
     else
     {
-        __parallel_stable_sort_body(__xs, __pivot, __comp);
+        __parallel_stable_sort_body(__xs, __part_end, __comp);
     }
 }
 
 template <class _ExecutionPolicy, typename _RandomAccessIterator, typename _Compare, typename _LeafSort>
 void
-__parallel_stable_sort(_ExecutionPolicy&&, _RandomAccessIterator __xs, _RandomAccessIterator __xe, _Compare __comp,
-                       _LeafSort __leaf_sort, std::size_t __nsort = 0)
+__parallel_stable_sort(_ExecutionPolicy&& __exec, _RandomAccessIterator __xs, _RandomAccessIterator __xe,
+                       _Compare __comp, _LeafSort __leaf_sort, std::size_t __nsort = 0)
 {
     if (__xs >= __xe)
     {
         return;
     }
 
-    if (__nsort < __default_chunk_size)
+    if (__nsort <= __default_chunk_size)
     {
-        __leaf_sort(__xs, __xe, __comp);
+        __serial_backend::__parallel_stable_sort(std::forward<_ExecutionPolicy>(__exec), __xs, __xe, __comp,
+                                                 __leaf_sort, __nsort);
         return;
     }
 
