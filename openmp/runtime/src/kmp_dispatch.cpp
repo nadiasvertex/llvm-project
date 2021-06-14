@@ -77,7 +77,7 @@ static inline int __kmp_get_monotonicity(ident_t *loc, enum sched_type schedule,
 
   // Let default be monotonic for executables
   // compiled with OpenMP* 4.5 or less compilers
-  if (loc->get_openmp_version() < 50)
+  if (loc != NULL && loc->get_openmp_version() < 50)
     monotonicity = SCHEDULE_MONOTONIC;
 
   if (use_hier || __kmp_force_monotonic)
@@ -1847,6 +1847,8 @@ int __kmp_dispatch_next_algorithm(int gtid,
         "__kmp_dispatch_next_algorithm: T#%%d exit status:%%d p_last:%%d "
         "p_lb:%%%s p_ub:%%%s p_st:%%%s\n",
         traits_t<T>::spec, traits_t<T>::spec, traits_t<ST>::spec);
+    KMP_DEBUG_ASSERT(p_last);
+    KMP_DEBUG_ASSERT(p_st);
     KD_TRACE(10, (buff, gtid, status, *p_last, *p_lb, *p_ub, *p_st));
     __kmp_str_free(&buff);
   }

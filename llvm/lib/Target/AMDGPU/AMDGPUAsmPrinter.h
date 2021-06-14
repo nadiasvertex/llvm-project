@@ -56,6 +56,10 @@ private:
     int32_t getTotalNumVGPRs(const GCNSubtarget &ST) const;
   };
 
+  void initializeTargetID(const Module &M);
+
+  bool doInitialization(Module &M) override;
+
   SIProgramInfo CurrentProgramInfo;
   DenseMap<const Function *, SIFunctionResourceInfo> CallGraphResourceInfo;
 
@@ -98,6 +102,11 @@ private:
 public:
   explicit AMDGPUAsmPrinter(TargetMachine &TM,
                             std::unique_ptr<MCStreamer> Streamer);
+
+  // To memoize max SGPR usage of non-kernel functions of the module.
+  unsigned NonKernelMaxSGPRs = 0;
+  // To memoize max VGPR usage of non-kernel functions of the module.
+  unsigned NonKernelMaxVGPRs = 0;
 
   StringRef getPassName() const override;
 

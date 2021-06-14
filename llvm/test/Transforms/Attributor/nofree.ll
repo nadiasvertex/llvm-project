@@ -347,7 +347,7 @@ declare double @cos(double) nobuiltin nounwind nofree
 define noalias i32* @test13(i64* nocapture readonly %a) {
 ; CHECK: Function Attrs: nounwind
 ; CHECK-LABEL: define {{[^@]+}}@test13
-; CHECK-SAME: (i64* nocapture noundef nonnull readonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (i64* nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i64, i64* [[A]], align 8
 ; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias i8* @malloc(i64 [[TMP0]]) #[[ATTR2]]
@@ -478,7 +478,7 @@ attributes #2 = { nobuiltin nounwind }
 ; IS__TUNIT____: attributes #[[ATTR6:[0-9]+]] = { nofree nosync nounwind readnone speculatable willreturn }
 ; IS__TUNIT____: attributes #[[ATTR7]] = { nofree nounwind }
 ; IS__TUNIT____: attributes #[[ATTR8:[0-9]+]] = { nobuiltin nofree nounwind }
-; IS__TUNIT____: attributes #[[ATTR9:[0-9]+]] = { nofree nosync nounwind willreturn }
+; IS__TUNIT____: attributes #[[ATTR9:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
 ; IS__TUNIT____: attributes #[[ATTR10:[0-9]+]] = { nounwind willreturn }
 ; IS__TUNIT____: attributes #[[ATTR11]] = { readnone willreturn }
 ; IS__TUNIT____: attributes #[[ATTR12]] = { willreturn }
@@ -493,7 +493,7 @@ attributes #2 = { nobuiltin nounwind }
 ; IS__CGSCC_OPM: attributes #[[ATTR7]] = { nofree noinline nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR8]] = { nofree nounwind }
 ; IS__CGSCC_OPM: attributes #[[ATTR9:[0-9]+]] = { nobuiltin nofree nounwind }
-; IS__CGSCC_OPM: attributes #[[ATTR10:[0-9]+]] = { nofree nosync nounwind willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR10:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR11:[0-9]+]] = { nounwind willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR12]] = { readnone willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR13]] = { willreturn }
@@ -508,7 +508,7 @@ attributes #2 = { nobuiltin nounwind }
 ; IS__CGSCC_NPM: attributes #[[ATTR7]] = { nofree noinline nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR8]] = { nofree nounwind }
 ; IS__CGSCC_NPM: attributes #[[ATTR9:[0-9]+]] = { nobuiltin nofree nounwind }
-; IS__CGSCC_NPM: attributes #[[ATTR10:[0-9]+]] = { nofree nosync nounwind willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR10:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR11:[0-9]+]] = { nounwind willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR12]] = { readnone willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR13]] = { willreturn }

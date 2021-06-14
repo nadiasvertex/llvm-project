@@ -19,6 +19,7 @@
 #ifndef MLIR_IR_OPDEFINITION_H
 #define MLIR_IR_OPDEFINITION_H
 
+#include "mlir/IR/Dialect.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/Support/PointerLikeTypeTraits.h"
 
@@ -92,8 +93,8 @@ void ensureRegionTerminator(
 /// they aren't customized.
 class OpState {
 public:
-  /// Ops are pointer-like, so we allow implicit conversion to bool.
-  operator bool() { return getOperation() != nullptr; }
+  /// Ops are pointer-like, so we allow conversion to bool.
+  explicit operator bool() { return getOperation() != nullptr; }
 
   /// This implicitly converts to Operation*.
   operator Operation *() const { return state; }
@@ -121,27 +122,6 @@ public:
 
   /// The source location the operation was defined or derived from.
   Location getLoc() { return state->getLoc(); }
-
-  /// Return all of the attributes on this operation.
-  LLVM_ATTRIBUTE_DEPRECATED(
-      ArrayRef<NamedAttribute> getAttrs(),
-      "Use Operation::getAttrs() instead (replace '.' with '->').") {
-    return state->getAttrs();
-  }
-
-  /// Remove the attribute with the specified name if it exists. Return the
-  /// attribute that was erased, or nullptr if there was no attribute with such
-  /// name.
-  LLVM_ATTRIBUTE_DEPRECATED(
-      Attribute removeAttr(Identifier name),
-      "Use Operation::removeAttr() instead (replace '.' with '->').") {
-    return state->removeAttr(name);
-  }
-  LLVM_ATTRIBUTE_DEPRECATED(
-      Attribute removeAttr(StringRef name),
-      "Use Operation::removeAttr() instead (replace '.' with '->').") {
-    return state->removeAttr(Identifier::get(name, getContext()));
-  }
 
   /// Return true if there are no users of any results of this operation.
   bool use_empty() { return state->use_empty(); }
@@ -185,7 +165,7 @@ public:
 public:
   /// This hook returns any canonicalization pattern rewrites that the operation
   /// supports, for use by the canonicalization pass.
-  static void getCanonicalizationPatterns(OwningRewritePatternList &results,
+  static void getCanonicalizationPatterns(RewritePatternSet &results,
                                           MLIRContext *context) {}
 
 protected:
@@ -291,6 +271,7 @@ LogicalResult verifyOperandSizeAttr(Operation *op, StringRef sizeAttrName);
 LogicalResult verifyResultSizeAttr(Operation *op, StringRef sizeAttrName);
 LogicalResult verifyNoRegionArguments(Operation *op);
 LogicalResult verifyElementwise(Operation *op);
+LogicalResult verifyIsIsolatedFromAbove(Operation *op);
 } // namespace impl
 
 /// Helper class for implementing traits.  Clients are not expected to interact
@@ -674,6 +655,11 @@ class VariadicResults
 //===----------------------------------------------------------------------===//
 // Terminator Traits
 
+/// This class indicates that the regions associated with this op don't have
+/// terminators.
+template <typename ConcreteType>
+class NoTerminator : public TraitBase<ConcreteType, NoTerminator> {};
+
 /// This class provides the API for ops that are known to be terminators.
 template <typename ConcreteType>
 class IsTerminator : public TraitBase<ConcreteType, IsTerminator> {
@@ -778,6 +764,87 @@ class VariadicSuccessors
 };
 
 //===----------------------------------------------------------------------===//
+// SingleBlock
+
+/// This class provides APIs and verifiers for ops with regions having a single
+/// block.
+template <typename ConcreteType>
+struct SingleBlock : public TraitBase<ConcreteType, SingleBlock> {
+public:
+  static LogicalResult verifyTrait(Operation *op) {
+    for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i) {
+      Region &region = op->getRegion(i);
+
+      // Empty regions are fine.
+      if (region.empty())
+        continue;
+
+      // Non-empty regions must contain a single basic block.
+      if (!llvm::hasSingleElement(region))
+        return op->emitOpError("expects region #")
+               << i << " to have 0 or 1 blocks";
+
+      if (!ConcreteType::template hasTrait<NoTerminator>()) {
+        Block &block = region.front();
+        if (block.empty())
+          return op->emitOpError() << "expects a non-empty block";
+      }
+    }
+    return success();
+  }
+
+  Block *getBody(unsigned idx = 0) {
+    Region &region = this->getOperation()->getRegion(idx);
+    assert(!region.empty() && "unexpected empty region");
+    return &region.front();
+  }
+  Region &getBodyRegion(unsigned idx = 0) {
+    return this->getOperation()->getRegion(idx);
+  }
+
+  //===------------------------------------------------------------------===//
+  // Single Region Utilities
+  //===------------------------------------------------------------------===//
+
+  /// The following are a set of methods only enabled when the parent
+  /// operation has a single region. Each of these methods take an additional
+  /// template parameter that represents the concrete operation so that we
+  /// can use SFINAE to disable the methods for non-single region operations.
+  template <typename OpT, typename T = void>
+  using enable_if_single_region =
+      typename std::enable_if_t<OpT::template hasTrait<OneRegion>(), T>;
+
+  template <typename OpT = ConcreteType>
+  enable_if_single_region<OpT, Block::iterator> begin() {
+    return getBody()->begin();
+  }
+  template <typename OpT = ConcreteType>
+  enable_if_single_region<OpT, Block::iterator> end() {
+    return getBody()->end();
+  }
+  template <typename OpT = ConcreteType>
+  enable_if_single_region<OpT, Operation &> front() {
+    return *begin();
+  }
+
+  /// Insert the operation into the back of the body.
+  template <typename OpT = ConcreteType>
+  enable_if_single_region<OpT> push_back(Operation *op) {
+    insert(Block::iterator(getBody()->end()), op);
+  }
+
+  /// Insert the operation at the given insertion point.
+  template <typename OpT = ConcreteType>
+  enable_if_single_region<OpT> insert(Operation *insertPt, Operation *op) {
+    insert(Block::iterator(insertPt), op);
+  }
+  template <typename OpT = ConcreteType>
+  enable_if_single_region<OpT> insert(Block::iterator insertPt, Operation *op) {
+    getBody()->getOperations().insert(insertPt, op);
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // SingleBlockImplicitTerminator
 
 /// This class provides APIs and verifiers for ops with regions having a single
@@ -785,8 +852,9 @@ class VariadicSuccessors
 template <typename TerminatorOpType>
 struct SingleBlockImplicitTerminator {
   template <typename ConcreteType>
-  class Impl : public TraitBase<ConcreteType, Impl> {
+  class Impl : public SingleBlock<ConcreteType> {
   private:
+    using Base = SingleBlock<ConcreteType>;
     /// Builds a terminator operation without relying on OpBuilder APIs to avoid
     /// cyclic header inclusion.
     static Operation *buildTerminator(OpBuilder &builder, Location loc) {
@@ -800,22 +868,14 @@ struct SingleBlockImplicitTerminator {
     using ImplicitTerminatorOpT = TerminatorOpType;
 
     static LogicalResult verifyTrait(Operation *op) {
+      if (failed(Base::verifyTrait(op)))
+        return failure();
       for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i) {
         Region &region = op->getRegion(i);
-
         // Empty regions are fine.
         if (region.empty())
           continue;
-
-        // Non-empty regions must contain a single basic block.
-        if (std::next(region.begin()) != region.end())
-          return op->emitOpError("expects region #")
-                 << i << " to have 0 or 1 blocks";
-
-        Block &block = region.front();
-        if (block.empty())
-          return op->emitOpError() << "expects a non-empty block";
-        Operation &terminator = block.back();
+        Operation &terminator = region.front().back();
         if (isa<TerminatorOpType>(terminator))
           continue;
 
@@ -848,39 +908,14 @@ struct SingleBlockImplicitTerminator {
                                            buildTerminator);
     }
 
-    Block *getBody(unsigned idx = 0) {
-      Region &region = this->getOperation()->getRegion(idx);
-      assert(!region.empty() && "unexpected empty region");
-      return &region.front();
-    }
-    Region &getBodyRegion(unsigned idx = 0) {
-      return this->getOperation()->getRegion(idx);
-    }
-
     //===------------------------------------------------------------------===//
     // Single Region Utilities
     //===------------------------------------------------------------------===//
+    using Base::getBody;
 
-    /// The following are a set of methods only enabled when the parent
-    /// operation has a single region. Each of these methods take an additional
-    /// template parameter that represents the concrete operation so that we
-    /// can use SFINAE to disable the methods for non-single region operations.
     template <typename OpT, typename T = void>
     using enable_if_single_region =
         typename std::enable_if_t<OpT::template hasTrait<OneRegion>(), T>;
-
-    template <typename OpT = ConcreteType>
-    enable_if_single_region<OpT, Block::iterator> begin() {
-      return getBody()->begin();
-    }
-    template <typename OpT = ConcreteType>
-    enable_if_single_region<OpT, Block::iterator> end() {
-      return getBody()->end();
-    }
-    template <typename OpT = ConcreteType>
-    enable_if_single_region<OpT, Operation &> front() {
-      return *begin();
-    }
 
     /// Insert the operation into the back of the body, before the terminator.
     template <typename OpT = ConcreteType>
@@ -904,6 +939,27 @@ struct SingleBlockImplicitTerminator {
       body->getOperations().insert(insertPt, op);
     }
   };
+};
+
+/// Check is an op defines the `ImplicitTerminatorOpT` member. This is intended
+/// to be used with `llvm::is_detected`.
+template <class T>
+using has_implicit_terminator_t = typename T::ImplicitTerminatorOpT;
+
+/// Support to check if an operation has the SingleBlockImplicitTerminator
+/// trait. We can't just use `hasTrait` because this class is templated on a
+/// specific terminator op.
+template <class Op, bool hasTerminator =
+                        llvm::is_detected<has_implicit_terminator_t, Op>::value>
+struct hasSingleBlockImplicitTerminator {
+  static constexpr bool value = std::is_base_of<
+      typename OpTrait::SingleBlockImplicitTerminator<
+          typename Op::ImplicitTerminatorOpT>::template Impl<Op>,
+      Op>::value;
+};
+template <class Op>
+struct hasSingleBlockImplicitTerminator<Op, false> {
+  static constexpr bool value = false;
 };
 
 //===----------------------------------------------------------------------===//
@@ -1108,10 +1164,7 @@ class IsIsolatedFromAbove
     : public TraitBase<ConcreteType, IsIsolatedFromAbove> {
 public:
   static LogicalResult verifyTrait(Operation *op) {
-    for (auto &region : op->getRegions())
-      if (!region.isIsolatedFromAbove(op->getLoc()))
-        return failure();
-    return success();
+    return impl::verifyIsIsolatedFromAbove(op);
   }
 };
 
@@ -1537,6 +1590,13 @@ public:
 #endif
     return false;
   }
+  /// Provide `classof` support for other OpBase derived classes, such as
+  /// Interfaces.
+  template <typename T>
+  static std::enable_if_t<std::is_base_of<OpState, T>::value, bool>
+  classof(const T *op) {
+    return classof(const_cast<T *>(op)->getOperation());
+  }
 
   /// Expose the type we are instantiated on to template machinery that may want
   /// to introspect traits on this operation.
@@ -1569,9 +1629,9 @@ private:
       llvm::is_detected<has_single_result_fold, T>;
   /// Trait to check if T provides a general 'fold' method.
   template <typename T, typename... Args>
-  using has_fold = decltype(
-      std::declval<T>().fold(std::declval<ArrayRef<Attribute>>(),
-                             std::declval<SmallVectorImpl<OpFoldResult> &>()));
+  using has_fold = decltype(std::declval<T>().fold(
+      std::declval<ArrayRef<Attribute>>(),
+      std::declval<SmallVectorImpl<OpFoldResult> &>()));
   template <typename T>
   using detect_has_fold = llvm::is_detected<has_fold, T>;
   /// Trait to check if T provides a 'print' method.
@@ -1609,7 +1669,10 @@ private:
                               detect_has_single_result_fold<ConcreteOpT>::value,
                           AbstractOperation::FoldHookFn>
   getFoldHookFnImpl() {
-    return &foldSingleResultHook<ConcreteOpT>;
+    return [](Operation *op, ArrayRef<Attribute> operands,
+              SmallVectorImpl<OpFoldResult> &results) {
+      return foldSingleResultHook<ConcreteOpT>(op, operands, results);
+    };
   }
   /// The internal implementation of `getFoldHookFn` above that is invoked if
   /// the operation is not single result and defines a `fold` method.
@@ -1619,7 +1682,10 @@ private:
                               detect_has_fold<ConcreteOpT>::value,
                           AbstractOperation::FoldHookFn>
   getFoldHookFnImpl() {
-    return &foldHook<ConcreteOpT>;
+    return [](Operation *op, ArrayRef<Attribute> operands,
+              SmallVectorImpl<OpFoldResult> &results) {
+      return foldHook<ConcreteOpT>(op, operands, results);
+    };
   }
   /// The internal implementation of `getFoldHookFn` above that is invoked if
   /// the operation does not define a `fold` method.
@@ -1628,8 +1694,12 @@ private:
                               !detect_has_fold<ConcreteOpT>::value,
                           AbstractOperation::FoldHookFn>
   getFoldHookFnImpl() {
-    // In this case, we only need to fold the traits of the operation.
-    return &op_definition_impl::foldTraits<FoldableTraitsTupleT>;
+    return [](Operation *op, ArrayRef<Attribute> operands,
+              SmallVectorImpl<OpFoldResult> &results) {
+      // In this case, we only need to fold the traits of the operation.
+      return op_definition_impl::foldTraits<FoldableTraitsTupleT>(op, operands,
+                                                                  results);
+    };
   }
   /// Return the result of folding a single result operation that defines a
   /// `fold` method.
@@ -1673,7 +1743,8 @@ private:
   }
   /// Implementation of `GetHasTraitFn`
   static AbstractOperation::HasTraitFn getHasTraitFn() {
-    return &op_definition_impl::hasTrait<Traits...>;
+    return
+        [](TypeID id) { return op_definition_impl::hasTrait<Traits...>(id); };
   }
   /// Implementation of `ParseAssemblyFn` AbstractOperation hook.
   static AbstractOperation::ParseAssemblyFn getParseAssemblyFn() {
@@ -1689,7 +1760,9 @@ private:
   static std::enable_if_t<!detect_has_print<ConcreteOpT>::value,
                           AbstractOperation::PrintAssemblyFn>
   getPrintAssemblyFnImpl() {
-    return &OpState::print;
+    return [](Operation *op, OpAsmPrinter &parser) {
+      return OpState::print(op, parser);
+    };
   }
   /// The internal implementation of `getPrintAssemblyFn` that is invoked when
   /// the concrete operation defines a `print` method.
@@ -1706,7 +1779,17 @@ private:
   static AbstractOperation::VerifyInvariantsFn getVerifyInvariantsFn() {
     return &verifyInvariants;
   }
+
+  static constexpr bool hasNoDataMembers() {
+    // Checking that the derived class does not define any member by comparing
+    // its size to an ad-hoc EmptyOp.
+    class EmptyOp : public Op<EmptyOp, Traits...> {};
+    return sizeof(ConcreteType) == sizeof(EmptyOp);
+  }
+
   static LogicalResult verifyInvariants(Operation *op) {
+    static_assert(hasNoDataMembers(),
+                  "Op class shouldn't define new data members");
     return failure(
         failed(op_definition_impl::verifyTraits<VerifiableTraitsTupleT>(op)) ||
         failed(cast<ConcreteType>(op).verify()));
@@ -1735,7 +1818,20 @@ protected:
   static typename InterfaceBase::Concept *getInterfaceFor(Operation *op) {
     // Access the raw interface from the abstract operation.
     auto *abstractOp = op->getAbstractOperation();
-    return abstractOp ? abstractOp->getInterface<ConcreteType>() : nullptr;
+    if (abstractOp) {
+      if (auto *opIface = abstractOp->getInterface<ConcreteType>())
+        return opIface;
+      // Fallback to the dialect to provide it with a chance to implement this
+      // interface for this operation.
+      return abstractOp->dialect.getRegisteredInterfaceForOp<ConcreteType>(
+          op->getName());
+    }
+    // Fallback to the dialect to provide it with a chance to implement this
+    // interface for this operation.
+    Dialect *dialect = op->getName().getDialect();
+    return dialect ? dialect->getRegisteredInterfaceForOp<ConcreteType>(
+                         op->getName())
+                   : nullptr;
   }
 
   /// Allow access to `getInterfaceFor`.

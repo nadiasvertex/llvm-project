@@ -7,7 +7,7 @@
 # build, see runtimes/CMakeLists.txt, except that we currently check whether
 # compiler-rt is being built to determine whether to first build builtins
 # or not so we need that information in this file as well.
-set(LLVM_ALL_RUNTIMES "compiler-rt;libcxx;libcxxabi;libunwind;openmp")
+set(LLVM_ALL_RUNTIMES "compiler-rt;libc;libcxx;libcxxabi;libunwind;openmp")
 set(LLVM_ENABLE_RUNTIMES "" CACHE STRING
   "Semicolon-separated list of runtimes to build (${LLVM_ALL_RUNTIMES}), or \"all\".")
 if(LLVM_ENABLE_RUNTIMES STREQUAL "all" )
@@ -166,6 +166,12 @@ endif()
 # for all variables that will apply to runtimes.
 foreach(entry ${runtimes})
   get_filename_component(projName ${entry} NAME)
+  if(projName STREQUAL "libc")
+    # For now, we will use the name "llvmlibc" for the libc project as it is
+    # not a full libc yet. Also, if we leave it as is, the "lib" prefix gets
+    # stripped below and the targets endup having the name "c", "check-c" etc.
+    set(projName "llvmlibc")
+  endif()
   string(REPLACE "-" "_" canon_name ${projName})
   string(TOUPPER ${canon_name} canon_name)
   list(APPEND prefixes ${canon_name})
@@ -395,6 +401,11 @@ if(runtimes)
         add_dependencies(install-${runtime_name} install-${runtime_name}-${name})
         add_dependencies(install-${runtime_name}-stripped install-${runtime_name}-${name}-stripped)
       endforeach()
+      foreach(component ${LLVM_RUNTIME_DISTRIBUTION_COMPONENTS})
+        add_dependencies(${component} ${component}-${name})
+        add_dependencies(install-${component} install-${component}-${name})
+        add_dependencies(install-${component}-stripped install-${component}-${name}-stripped)
+      endforeach()
     endforeach()
 
     foreach(multilib ${LLVM_RUNTIME_MULTILIBS})
@@ -411,6 +422,11 @@ if(runtimes)
           add_dependencies(${runtime_name} ${runtime_name}-${name}+${multilib})
           add_dependencies(install-${runtime_name} install-${runtime_name}-${name}+${multilib})
           add_dependencies(install-${runtime_name}-stripped install-${runtime_name}-${name}+${multilib}-stripped)
+        endforeach()
+        foreach(component ${LLVM_RUNTIME_DISTRIBUTION_COMPONENTS})
+          add_dependencies(${component} ${component}-${name}+${multilib})
+          add_dependencies(install-${component} install-${component}-${name}+${multilib})
+          add_dependencies(install-${component}-stripped install-${component}-${name}+${multilib}-stripped)
         endforeach()
       endforeach()
     endforeach()

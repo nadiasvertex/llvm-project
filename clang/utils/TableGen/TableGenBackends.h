@@ -107,7 +107,6 @@ void EmitMveBuiltinCG(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 void EmitMveBuiltinAliases(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 
 void EmitRVVHeader(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
-void EmitRVVGenericHeader(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 void EmitRVVBuiltins(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 void EmitRVVBuiltinCG(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 
@@ -123,6 +122,8 @@ void EmitClangOptDocs(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 
 void EmitClangOpenCLBuiltins(llvm::RecordKeeper &Records,
                              llvm::raw_ostream &OS);
+void EmitClangOpenCLBuiltinTests(llvm::RecordKeeper &Records,
+                                 llvm::raw_ostream &OS);
 
 void EmitClangDataCollectors(llvm::RecordKeeper &Records,
                              llvm::raw_ostream &OS);

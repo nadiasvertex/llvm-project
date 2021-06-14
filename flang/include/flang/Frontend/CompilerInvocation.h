@@ -69,10 +69,16 @@ class CompilerInvocation : public CompilerInvocationBase {
   // of options.
   std::string moduleDir_ = ".";
 
+  std::string moduleFileSuffix_ = ".mod";
+
   bool debugModuleDir_ = false;
+
+  bool warnAsErr_ = false;
 
   // Fortran Dialect options
   Fortran::common::IntrinsicTypeDefaultKinds defaultKinds_;
+
+  bool EnableConformanceChecks_ = false;
 
 public:
   CompilerInvocation() = default;
@@ -93,8 +99,19 @@ public:
   std::string &moduleDir() { return moduleDir_; }
   const std::string &moduleDir() const { return moduleDir_; }
 
+  std::string &moduleFileSuffix() { return moduleFileSuffix_; }
+  const std::string &moduleFileSuffix() const { return moduleFileSuffix_; }
+
   bool &debugModuleDir() { return debugModuleDir_; }
   const bool &debugModuleDir() const { return debugModuleDir_; }
+
+  bool &warnAsErr() { return warnAsErr_; }
+  const bool &warnAsErr() const { return warnAsErr_; }
+
+  bool &enableConformanceChecks() { return EnableConformanceChecks_; }
+  const bool &enableConformanceChecks() const {
+    return EnableConformanceChecks_;
+  }
 
   Fortran::common::IntrinsicTypeDefaultKinds &defaultKinds() {
     return defaultKinds_;
@@ -111,10 +128,19 @@ public:
       llvm::ArrayRef<const char *> commandLineArgs,
       clang::DiagnosticsEngine &diags);
 
+  // Enables the std=f2018 conformance check
+  void set_EnableConformanceChecks() { EnableConformanceChecks_ = true; }
+
   /// Useful setters
   void SetModuleDir(std::string &moduleDir) { moduleDir_ = moduleDir; }
 
+  void SetModuleFileSuffix(const char *moduleFileSuffix) {
+    moduleFileSuffix_ = std::string(moduleFileSuffix);
+  }
+
   void SetDebugModuleDir(bool flag) { debugModuleDir_ = flag; }
+
+  void SetWarnAsErr(bool flag) { warnAsErr_ = flag; }
 
   /// Set the Fortran options to predifined defaults. These defaults are
   /// consistend with f18/f18.cpp.
@@ -125,6 +151,10 @@ public:
 
   /// Set the default predefinitions.
   void setDefaultPredefinitions();
+
+  /// Collect the macro definitions from preprocessorOpts_ and prepare them for
+  /// the parser (i.e. copy into parserOpts_)
+  void collectMacroDefinitions();
 
   /// Set the Fortran options to user-specified values.
   /// These values are found in the preprocessor options.

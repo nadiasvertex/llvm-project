@@ -1009,11 +1009,14 @@ public:
                             "Launch a new process on a remote platform.",
                             "platform process launch program",
                             eCommandRequiresTarget | eCommandTryTargetAPILock),
-        m_options() {}
+        m_options(), m_all_options() {
+    m_all_options.Append(&m_options);
+    m_all_options.Finalize();
+  }
 
   ~CommandObjectPlatformProcessLaunch() override = default;
 
-  Options *GetOptions() override { return &m_options; }
+  Options *GetOptions() override { return &m_all_options; }
 
 protected:
   bool DoExecute(Args &args, CommandReturnObject &result) override {
@@ -1085,6 +1088,7 @@ protected:
   }
 
   CommandOptionsProcessLaunch m_options;
+  OptionGroupOptions m_all_options;
 };
 
 // "platform process list"
@@ -1211,8 +1215,7 @@ protected:
 
   class CommandOptions : public Options {
   public:
-    CommandOptions()
-        : Options(), match_info(), show_args(false), verbose(false) {}
+    CommandOptions() : Options(), match_info() {}
 
     ~CommandOptions() override = default;
 
@@ -1347,8 +1350,8 @@ protected:
     // Instance variables to hold the values for command options.
 
     ProcessInstanceInfoMatch match_info;
-    bool show_args;
-    bool verbose;
+    bool show_args = false;
+    bool verbose = false;
   };
 
   CommandOptions m_options;

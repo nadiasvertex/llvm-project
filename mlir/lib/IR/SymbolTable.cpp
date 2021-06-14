@@ -161,11 +161,17 @@ void SymbolTable::insert(Operation *symbol, Block::iterator insertPt) {
   // TODO: consider if SymbolTable's constructor should behave the same.
   if (!symbol->getParentOp()) {
     auto &body = symbolTableOp->getRegion(0).front();
-    if (insertPt == Block::iterator() || insertPt == body.end())
-      insertPt = Block::iterator(body.getTerminator());
-
-    assert(insertPt->getParentOp() == symbolTableOp &&
-           "expected insertPt to be in the associated module operation");
+    if (insertPt == Block::iterator()) {
+      insertPt = Block::iterator(body.end());
+    } else {
+      assert((insertPt == body.end() ||
+              insertPt->getParentOp() == symbolTableOp) &&
+             "expected insertPt to be in the associated module operation");
+    }
+    // Insert before the terminator, if any.
+    if (insertPt == Block::iterator(body.end()) && !body.empty() &&
+        std::prev(body.end())->hasTrait<OpTrait::IsTerminator>())
+      insertPt = std::prev(body.end());
 
     body.getOperations().insert(insertPt, symbol);
   }
@@ -291,11 +297,14 @@ void SymbolTable::walkSymbolTables(
 Operation *SymbolTable::lookupSymbolIn(Operation *symbolTableOp,
                                        StringRef symbol) {
   assert(symbolTableOp->hasTrait<OpTrait::SymbolTable>());
+  Region &region = symbolTableOp->getRegion(0);
+  if (region.empty())
+    return nullptr;
 
   // Look for a symbol with the given name.
   Identifier symbolNameId = Identifier::get(SymbolTable::getSymbolAttrName(),
                                             symbolTableOp->getContext());
-  for (auto &op : symbolTableOp->getRegion(0).front().without_terminator())
+  for (auto &op : region.front())
     if (getNameIfSymbol(&op, symbolNameId) == symbol)
       return &op;
   return nullptr;
@@ -364,6 +373,19 @@ Operation *SymbolTable::lookupNearestSymbolFrom(Operation *from,
                                                 SymbolRefAttr symbol) {
   Operation *symbolTableOp = getNearestSymbolTable(from);
   return symbolTableOp ? lookupSymbolIn(symbolTableOp, symbol) : nullptr;
+}
+
+raw_ostream &mlir::operator<<(raw_ostream &os,
+                              SymbolTable::Visibility visibility) {
+  switch (visibility) {
+  case SymbolTable::Visibility::Public:
+    return os << "public";
+  case SymbolTable::Visibility::Private:
+    return os << "private";
+  case SymbolTable::Visibility::Nested:
+    return os << "nested";
+  }
+  llvm_unreachable("Unexpected visibility");
 }
 
 //===----------------------------------------------------------------------===//
@@ -592,8 +614,8 @@ static SmallVector<SymbolScope, 2> collectSymbolScopes(Operation *symbol,
   assert(!symbol->hasTrait<OpTrait::SymbolTable>() || symbol != limit);
 
   // Compute the ancestors of 'limit'.
-  llvm::SetVector<Operation *, SmallVector<Operation *, 4>,
-                  SmallPtrSet<Operation *, 4>>
+  SetVector<Operation *, SmallVector<Operation *, 4>,
+            SmallPtrSet<Operation *, 4>>
       limitAncestors;
   Operation *limitAncestor = limit;
   do {
@@ -1034,7 +1056,7 @@ void SymbolUserMap::replaceAllUsesWith(Operation *symbol,
   auto it = symbolToUsers.find(symbol);
   if (it == symbolToUsers.end())
     return;
-  llvm::SetVector<Operation *> &users = it->second;
+  SetVector<Operation *> &users = it->second;
 
   // Replace the uses within the users of `symbol`.
   for (Operation *user : users)

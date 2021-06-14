@@ -81,6 +81,13 @@ public:
 };
 } // namespace
 
+void mlir::populateTensorConstantBufferizePatterns(
+    GlobalCreator &globalCreator, BufferizeTypeConverter &typeConverter,
+    RewritePatternSet &patterns) {
+  patterns.add<BufferizeTensorConstantOp>(globalCreator, typeConverter,
+                                          patterns.getContext());
+}
+
 namespace {
 struct TensorConstantBufferizePass
     : public TensorConstantBufferizeBase<TensorConstantBufferizePass> {
@@ -90,11 +97,11 @@ struct TensorConstantBufferizePass
 
     auto *context = &getContext();
     BufferizeTypeConverter typeConverter;
-    OwningRewritePatternList patterns(context);
+    RewritePatternSet patterns(context);
     ConversionTarget target(*context);
 
     target.addLegalDialect<memref::MemRefDialect>();
-    patterns.insert<BufferizeTensorConstantOp>(globals, typeConverter, context);
+    populateTensorConstantBufferizePatterns(globals, typeConverter, patterns);
     target.addDynamicallyLegalOp<ConstantOp>(
         [&](ConstantOp op) { return typeConverter.isLegal(op.getType()); });
     if (failed(applyPartialConversion(module, target, std::move(patterns))))
