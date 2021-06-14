@@ -91,16 +91,15 @@ __chunk_partitioner(_RandomAccessIterator __first, _RandomAccessIterator __last,
                     _Size& __first_chunk_size, _Size __requested_chunk_size = __default_chunk_size)
 {
     /*
-   * This algorithm improves distribution of elements in chunks by avoiding
-   * small tail chunks. The leftover elements that do not fit neatly into
-   * the chunk size are redistributed to early chunks. This improves
-   * utilization of the processor's prefetch and reduces the number of
-   * tasks needed by 1.
-   */
+     * This algorithm improves distribution of elements in chunks by avoiding
+     * small tail chunks. The leftover elements that do not fit neatly into
+     * the chunk size are redistributed to early chunks. This improves
+     * utilization of the processor's prefetch and reduces the number of
+     * tasks needed by 1.
+     */
 
     const _Size __n = __last - __first;
-    if (__n < __requested_chunk_size)
-    {
+    if (__n < __requested_chunk_size) {
         __chunk_size = __n;
         __first_chunk_size = __n;
         __n_chunks = 1;
@@ -109,16 +108,19 @@ __chunk_partitioner(_RandomAccessIterator __first, _RandomAccessIterator __last,
 
     __n_chunks = (__n / __requested_chunk_size) + 1;
     __chunk_size = __n / __n_chunks;
-    const _Size __n_leftover_items = __n % __chunk_size;
+    __first_chunk_size = __chunk_size;
+    const _Size __n_leftover_items = __n - (__n_chunks * __chunk_size);
 
-    if (__n_leftover_items == 0)
-    {
+    if (__n_leftover_items == __chunk_size) {
+        __n_chunks += 1;
+        return;
+    } else if (__n_leftover_items == 0) {
         __first_chunk_size = __chunk_size;
         return;
     }
 
     const _Size __n_extra_items_per_chunk = __n_leftover_items / __n_chunks;
-    const _Size __n_final_leftover_items = __n_leftover_items % __n_chunks;
+    const _Size __n_final_leftover_items = __n_leftover_items  - (__n_extra_items_per_chunk * __n_chunks);
 
     __chunk_size += __n_extra_items_per_chunk;
     __first_chunk_size = __chunk_size + __n_final_leftover_items;
@@ -548,128 +550,67 @@ __parallel_transform_scan(_ExecutionPolicy&& __exec, _Index __n, _Up __u, _Tp __
 // parallel_stable_sort
 //------------------------------------------------------------------------
 
-template <typename _RandomAccessIterator>
-struct _MinKItems
-{
-    using _MinKVector = std::vector<_RandomAccessIterator>;
-    _MinKVector __smallest_k_items;
-    std::size_t __largest_item;
-
-    bool
-    __empty() const
-    {
-        return __smallest_k_items.empty();
-    }
-
-    auto
-    __size() const
-    {
-        return std::size(__smallest_k_items);
-    }
-
-    void
-    __resize(std::size_t new_size)
-    {
-        __smallest_k_items.resize(new_size);
-    }
-
-    auto
-    __get_largest_item() const
-    {
-        return __smallest_k_items[__largest_item];
-    }
-
-    auto
-    __set_largest_item(_RandomAccessIterator it)
-    {
-        __smallest_k_items[__largest_item] = it;
-    }
-};
-
-template <typename _RandomAccessIterator, typename _Compare>
-struct _MinKOp
-{
-    _MinKItems<_RandomAccessIterator>& __items;
+template<typename _RandomAccessIterator, typename _Compare>
+struct _MinKOp {
+    std::vector<_RandomAccessIterator> &__items;
     _Compare __comp;
 
-    _MinKOp(_MinKItems<_RandomAccessIterator>& __items_, _Compare __comp_) : __items(__items_), __comp(__comp_) {}
+    _MinKOp(std::vector<_RandomAccessIterator> &__items_, _Compare __comp_)
+        : __items(__items_), __comp(__comp_) {}
 
-    void
-    __keep_smallest_k_items(_RandomAccessIterator __item)
-    {
-        // If the new item is larger than the largest item in the list, discard it.
-        if (__comp(*__items.__get_largest_item(), *__item))
-        {
-            return;
-        }
+    auto __it_comp() const {
+        return [this](const auto &l, const auto &r) { return __comp(*l, *r); };
+    }
 
-        // If thew new item is equal to the largest item in the list, discard it.
-        if (!__comp(*__item, *__items.__get_largest_item()))
-        {
-            return;
-        }
+    void __keep_smallest_k_items(_RandomAccessIterator __item) {
+        // Put the new item on the heap and re-establish the heap invariant.
+        __items.push_back(__item);
+        std::push_heap(__items.begin(),
+                       __items.end(), __it_comp());
 
-        // The new item is smaller than the largest item. Replace the largest item
-        // with the new item.
-        __items.__set_largest_item(__item);
-
-        // Find the new largest item.
-        __update_largest_item();
+        // Pop the largest item off the heap.
+        std::pop_heap(__items.begin(),
+                      __items.end(), __it_comp());
+        __items.pop_back();
     };
 
-    void
-    __update_largest_item()
-    {
-        auto pos = std::max_element(std::begin(__items.__smallest_k_items), std::end(__items.__smallest_k_items),
-                                    [this](const auto& l, const auto& r) { return __comp(*l, *r); });
-        __items.__largest_item = std::distance(std::begin(__items.__smallest_k_items), pos);
-    }
-
-    void
-    __merge(_MinKItems<_RandomAccessIterator>& __other)
-    {
-        for (auto __it = std::begin(__other.__smallest_k_items); __it != std::end(__other.__smallest_k_items); ++__it)
-        {
+    void __merge(std::vector<_RandomAccessIterator> &__other) {
+        for (auto __it = std::begin(__other);
+             __it != std::end(__other); ++__it) {
             __keep_smallest_k_items(*__it);
         }
-        __update_largest_item();
     }
 
-    void
-    __initialize(_RandomAccessIterator __first, _RandomAccessIterator __last, std::size_t __k)
-    {
-        __items.__resize(__k);
+    void __initialize(_RandomAccessIterator __first, _RandomAccessIterator __last,
+                      std::size_t __k) {
+        __items.resize(__k);
         auto __item_it = __first;
-        auto __tracking_it = __items.__smallest_k_items.begin();
-        while( __item_it != __last && __tracking_it != __items.__smallest_k_items.end())
-        {
+        auto __tracking_it = std::begin(__items);
+        while (__item_it != __last &&
+            __tracking_it != std::end(__items)) {
             *__tracking_it = __item_it;
             ++__item_it;
             ++__tracking_it;
         }
-        __update_largest_item();
-        for (; __item_it != __last; ++__item_it)
-        {
+        std::make_heap(__items.begin(),
+                       __items.end(), __it_comp());
+        for (; __item_it != __last; ++__item_it) {
             __keep_smallest_k_items(__item_it);
         }
     }
 
-    static auto
-    __reduce(_MinKItems<_RandomAccessIterator>& __v1, _MinKItems<_RandomAccessIterator>& __v2, _Compare __comp)
-        -> _MinKItems<_RandomAccessIterator>
-    {
-        if (__v1.__empty())
-        {
+    static auto __reduce(std::vector<_RandomAccessIterator> &__v1,
+                         std::vector<_RandomAccessIterator> &__v2, _Compare __comp)
+    -> std::vector<_RandomAccessIterator> {
+        if (__v1.empty()) {
             return __v2;
         }
 
-        if (__v2.__empty())
-        {
+        if (__v2.empty()) {
             return __v1;
         }
 
-        if (__v1.__size() >= __v2.__size())
-        {
+        if (__v1.size() >= __v2.size()) {
             _MinKOp<_RandomAccessIterator, _Compare> __op(__v1, __comp);
             __op.__merge(__v2);
             return __v1;
@@ -681,61 +622,66 @@ struct _MinKOp
     }
 };
 
-template <typename _RandomAccessIterator, typename _Compare>
-auto
-__find_min_k(_RandomAccessIterator __first, _RandomAccessIterator __last, std::size_t __k, _Compare __comp)
-    -> _MinKItems<_RandomAccessIterator>
-{
-    _MinKItems<_RandomAccessIterator> __items;
-    _MinKOp op(__items, __comp);
+template<typename _RandomAccessIterator, typename _Compare>
+auto __find_min_k(_RandomAccessIterator __first, _RandomAccessIterator __last,
+                  std::size_t __k, _Compare __comp)
+-> std::vector<_RandomAccessIterator> {
+    std::vector<_RandomAccessIterator> __items;
+    _MinKOp<_RandomAccessIterator, _Compare> op(__items, __comp);
 
     op.__initialize(__first, __last, __k);
     return __items;
 }
 
-template <typename _RandomAccessIterator, typename _Compare>
-auto
-__parallel_find_pivot(_RandomAccessIterator __first, _RandomAccessIterator __last, _Compare __comp, std::size_t __nsort)
-    -> _RandomAccessIterator
-{
-    using _Value = _MinKItems<_RandomAccessIterator>;
+template<typename _RandomAccessIterator, typename _Compare>
+auto __parallel_find_pivot(_RandomAccessIterator __first,
+                           _RandomAccessIterator __last, _Compare __comp,
+                           std::size_t __nsort) -> _RandomAccessIterator {
+    using _Value = std::vector<_RandomAccessIterator>;
     using _Op = _MinKOp<_RandomAccessIterator, _Compare>;
 
     std::size_t __n_chunks{0}, __chunk_size{0}, __first_chunk_size{0};
-    __omp_backend::__chunk_partitioner(__first, __last, __n_chunks, __chunk_size, __first_chunk_size,
-                                       std::max(__nsort, __default_chunk_size));
+    __chunk_partitioner(__first, __last, __n_chunks, __chunk_size,
+                        __first_chunk_size,
+                        std::max(__nsort, __default_chunk_size));
     /*
-   * This function creates a vector of iterators to the container being operated
-   * on. It splits that container into fixed size chunks, just like other
-   * functions in this backend. For each chunk it finds the smallest k items.
-   * The chunks are run through a reducer which keeps the smallest k items from
-   * each chunk. Finally, the largest item from the merged chunks is returned as
-   * the pivot.
-   *
-   * The chunks are partitioned in such a way that there will always be at least
-   * k items in one chunk. The reducer will always produce a chunk merge so that
-   * the longest k items list propagates out. So even if some of the chunks are
-   * less than __nsort elements, at least one chunk will be and this chunk will
-   * end up producing a correctly sized smallest k items list.
-   *
-   * Note that the case where __nsort == distance(__first, __last) is handled by
-   * performing a complete sort of the container, so we don't have to handle
-   * that here.
-   */
+     * This function creates a vector of iterators to the container being operated
+     * on. It splits that container into fixed size chunks, just like other
+     * functions in this backend. For each chunk it finds the smallest k items.
+     * The chunks are run through a reducer which keeps the smallest k items from
+     * each chunk. Finally, the largest item from the merged chunks is returned as
+     * the pivot.
+     *
+     * The chunks are partitioned in such a way that there will always be at least
+     * k items in one chunk. The reducer will always produce a chunk merge so that
+     * the longest k items list propagates out. So even if some of the chunks are
+     * less than __nsort elements, at least one chunk will be and this chunk will
+     * end up producing a correctly sized smallest k items list.
+     *
+     * Note that the case where __nsort == distance(__first, __last) is handled by
+     * performing a complete sort of the container, so we don't have to handle
+     * that here.
+     */
 
     auto __reduce_chunk = [&](std::uint32_t __chunk) {
-        auto __this_chunk_size = __chunk == 0 ? __first_chunk_size : __chunk_size;
-        auto __index = __chunk == 0 ? 0 : (__chunk * __chunk_size) + (__first_chunk_size - __chunk_size);
-        auto __begin = __first + __index;
-        auto __end = __begin + __this_chunk_size;
+      auto __this_chunk_size = __chunk == 0 ? __first_chunk_size : __chunk_size;
+      auto __index = __chunk == 0 ? 0
+                                  : (__chunk * __chunk_size) +
+              (__first_chunk_size - __chunk_size);
+      auto __begin = std::next(__first, __index);
+      auto __end = std::next(__begin, __this_chunk_size);
 
-        return __find_min_k(__begin, __end, __nsort, __comp);
+      return __find_min_k(__begin, __end, __nsort, __comp);
     };
 
-    auto __reduce_value = [&](auto& __v1, auto& __v2) { return _Op::__reduce(__v1, __v2, __comp); };
-    auto __result = __parallel_reduce_chunks<_Value>(0, __n_chunks, __reduce_chunk, __reduce_value);
+    auto __reduce_value = [&](auto &__v1, auto &__v2) {
+      return _Op::__reduce(__v1, __v2, __comp);
+    };
+    auto __result = __parallel_reduce_chunks<_Value>(
+        0, __n_chunks, __reduce_chunk, __reduce_value);
 
-    return __result.__get_largest_item();
+    // Return largest item
+    return __result.front();
 }
 
 template <typename _RandomAccessIterator, typename _Compare>
