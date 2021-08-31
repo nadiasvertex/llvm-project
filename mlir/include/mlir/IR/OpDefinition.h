@@ -267,6 +267,9 @@ LogicalResult verifyZeroSuccessor(Operation *op);
 LogicalResult verifyOneSuccessor(Operation *op);
 LogicalResult verifyNSuccessors(Operation *op, unsigned numSuccessors);
 LogicalResult verifyAtLeastNSuccessors(Operation *op, unsigned numSuccessors);
+LogicalResult verifyValueSizeAttr(Operation *op, StringRef attrName,
+                                  StringRef valueGroupName,
+                                  size_t expectedCount);
 LogicalResult verifyOperandSizeAttr(Operation *op, StringRef sizeAttrName);
 LogicalResult verifyResultSizeAttr(Operation *op, StringRef sizeAttrName);
 LogicalResult verifyNoRegionArguments(Operation *op);
@@ -1617,6 +1620,19 @@ public:
   static ConcreteOpType getFromOpaquePointer(const void *pointer) {
     return ConcreteOpType(
         reinterpret_cast<Operation *>(const_cast<void *>(pointer)));
+  }
+
+  /// Attach the given models as implementations of the corresponding interfaces
+  /// for the concrete operation.
+  template <typename... Models>
+  static void attachInterface(MLIRContext &context) {
+    AbstractOperation *abstract = AbstractOperation::lookupMutable(
+        ConcreteType::getOperationName(), &context);
+    if (!abstract)
+      llvm::report_fatal_error(
+          "Attempting to attach an interface to an unregistered operation " +
+          ConcreteType::getOperationName() + ".");
+    abstract->interfaceMap.insert<Models...>();
   }
 
 private:

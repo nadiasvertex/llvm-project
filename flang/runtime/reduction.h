@@ -141,7 +141,37 @@ void RTNAME(CppProductComplex16)(std::complex<long double> &,
 void RTNAME(ProductDim)(Descriptor &result, const Descriptor &array, int dim,
     const char *source, int line, const Descriptor *mask = nullptr);
 
-// IPARITY()
+// IALL, IANY, IPARITY
+std::int8_t RTNAME(IAll1)(const Descriptor &, const char *source, int line,
+    int dim = 0, const Descriptor *mask = nullptr);
+std::int16_t RTNAME(IAll2)(const Descriptor &, const char *source, int line,
+    int dim = 0, const Descriptor *mask = nullptr);
+std::int32_t RTNAME(IAll4)(const Descriptor &, const char *source, int line,
+    int dim = 0, const Descriptor *mask = nullptr);
+std::int64_t RTNAME(IAll8)(const Descriptor &, const char *source, int line,
+    int dim = 0, const Descriptor *mask = nullptr);
+#ifdef __SIZEOF_INT128__
+common::int128_t RTNAME(IAll16)(const Descriptor &, const char *source,
+    int line, int dim = 0, const Descriptor *mask = nullptr);
+#endif
+void RTNAME(IAllDim)(Descriptor &result, const Descriptor &array, int dim,
+    const char *source, int line, const Descriptor *mask = nullptr);
+
+std::int8_t RTNAME(IAny1)(const Descriptor &, const char *source, int line,
+    int dim = 0, const Descriptor *mask = nullptr);
+std::int16_t RTNAME(IAny2)(const Descriptor &, const char *source, int line,
+    int dim = 0, const Descriptor *mask = nullptr);
+std::int32_t RTNAME(IAny4)(const Descriptor &, const char *source, int line,
+    int dim = 0, const Descriptor *mask = nullptr);
+std::int64_t RTNAME(IAny8)(const Descriptor &, const char *source, int line,
+    int dim = 0, const Descriptor *mask = nullptr);
+#ifdef __SIZEOF_INT128__
+common::int128_t RTNAME(IAny16)(const Descriptor &, const char *source,
+    int line, int dim = 0, const Descriptor *mask = nullptr);
+#endif
+void RTNAME(IAnyDim)(Descriptor &result, const Descriptor &array, int dim,
+    const char *source, int line, const Descriptor *mask = nullptr);
+
 std::int8_t RTNAME(IParity1)(const Descriptor &, const char *source, int line,
     int dim = 0, const Descriptor *mask = nullptr);
 std::int16_t RTNAME(IParity2)(const Descriptor &, const char *source, int line,
@@ -214,10 +244,10 @@ std::int16_t RTNAME(MinvalInteger2)(const Descriptor &, const char *source,
     int line, int dim = 0, const Descriptor *mask = nullptr);
 std::int32_t RTNAME(MinvalInteger4)(const Descriptor &, const char *source,
     int line, int dim = 0, const Descriptor *mask = nullptr);
-std::int64_t RTNAME(MivalInteger8)(const Descriptor &, const char *source,
+std::int64_t RTNAME(MinvalInteger8)(const Descriptor &, const char *source,
     int line, int dim = 0, const Descriptor *mask = nullptr);
 #ifdef __SIZEOF_INT128__
-common::int128_t RTNAME(MivalInteger16)(const Descriptor &, const char *source,
+common::int128_t RTNAME(MinvalInteger16)(const Descriptor &, const char *source,
     int line, int dim = 0, const Descriptor *mask = nullptr);
 #endif
 float RTNAME(MinvalReal2)(const Descriptor &, const char *source, int line,

@@ -22,7 +22,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/TextAPI/TextAPIReader.h"
 
-#include <map>
 #include <vector>
 
 namespace llvm {
@@ -104,6 +103,7 @@ public:
   llvm::DWARFUnit *compileUnit = nullptr;
   const uint32_t modTime;
   std::vector<ConcatInputSection *> debugSections;
+  ArrayRef<llvm::MachO::data_in_code_entry> dataInCodeEntries;
 
 private:
   template <class LP> void parse();
@@ -118,6 +118,7 @@ private:
   void parseRelocations(ArrayRef<Section> sectionHeaders, const Section &,
                         SubsectionMap &);
   void parseDebugInfo();
+  void parseDataInCode();
 };
 
 // command-line -sectcreate file
@@ -164,9 +165,7 @@ public:
 
   unsigned numReferencedSymbols = 0;
 
-  bool isReferenced() const {
-    return numReferencedSymbols > 0;
-  }
+  bool isReferenced() const { return numReferencedSymbols > 0; }
 
   // An executable can be used as a bundle loader that will load the output
   // file being linked, and that contains symbols referenced, but not
@@ -178,14 +177,20 @@ private:
   bool handleLDSymbol(StringRef originalName);
   void handleLDPreviousSymbol(StringRef name, StringRef originalName);
   void handleLDInstallNameSymbol(StringRef name, StringRef originalName);
+  void checkAppExtensionSafety(bool dylibIsAppExtensionSafe) const;
 };
 
 // .a file
 class ArchiveFile final : public InputFile {
 public:
   explicit ArchiveFile(std::unique_ptr<llvm::object::Archive> &&file);
+  void addLazySymbols();
+  void fetch(const llvm::object::Archive::Symbol &);
+  // LLD normally doesn't use Error for error-handling, but the underlying
+  // Archive library does, so this is the cleanest way to wrap it.
+  Error fetch(const llvm::object::Archive::Child &, StringRef reason);
+  const llvm::object::Archive &getArchive() const { return *file; };
   static bool classof(const InputFile *f) { return f->kind() == ArchiveKind; }
-  void fetch(const llvm::object::Archive::Symbol &sym);
 
 private:
   std::unique_ptr<llvm::object::Archive> file;
@@ -196,7 +201,8 @@ private:
 
 class BitcodeFile final : public InputFile {
 public:
-  explicit BitcodeFile(MemoryBufferRef mb);
+  explicit BitcodeFile(MemoryBufferRef mb, StringRef archiveName,
+                       uint64_t offsetInArchive);
   static bool classof(const InputFile *f) { return f->kind() == BitcodeKind; }
 
   std::unique_ptr<llvm::lto::InputFile> obj;

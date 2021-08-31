@@ -22,6 +22,8 @@
 using namespace mlir;
 using namespace mlir::toy;
 
+#include "toy/Dialect.cpp.inc"
+
 //===----------------------------------------------------------------------===//
 // ToyInlinerInterface
 //===----------------------------------------------------------------------===//
@@ -280,7 +282,8 @@ void GenericCallOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
   // Generic call always returns an unranked Tensor initially.
   state.addTypes(UnrankedTensorType::get(builder.getF64Type()));
   state.addOperands(arguments);
-  state.addAttribute("callee", builder.getSymbolRefAttr(callee));
+  state.addAttribute("callee",
+                     mlir::SymbolRefAttr::get(builder.getContext(), callee));
 }
 
 /// Return the callee of the generic call operation, this is required by the
