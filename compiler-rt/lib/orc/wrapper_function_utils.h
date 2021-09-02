@@ -61,7 +61,7 @@ public:
   }
 
   /// Get a pointer to the data contained in this instance.
-  const char *data() const { return __orc_rt_CWrapperFunctionResultData(&R); }
+  char *data() { return __orc_rt_CWrapperFunctionResultData(&R); }
 
   /// Returns the size of the data contained in this instance.
   size_t size() const { return __orc_rt_CWrapperFunctionResultSize(&R); }
@@ -72,10 +72,10 @@ public:
 
   /// Create a WrapperFunctionResult with the given size and return a pointer
   /// to the underlying memory.
-  static char *allocate(WrapperFunctionResult &R, size_t Size) {
-    __orc_rt_DisposeCWrapperFunctionResult(&R.R);
-    __orc_rt_CWrapperFunctionResultInit(&R.R);
-    return __orc_rt_CWrapperFunctionResultAllocate(&R.R, Size);
+  static WrapperFunctionResult allocate(size_t Size) {
+    WrapperFunctionResult R;
+    R.R = __orc_rt_CWrapperFunctionResultAllocate(Size);
+    return R;
   }
 
   /// Copy from the given char range.
@@ -118,15 +118,32 @@ namespace detail {
 template <typename SPSArgListT, typename... ArgTs>
 Expected<WrapperFunctionResult>
 serializeViaSPSToWrapperFunctionResult(const ArgTs &...Args) {
-  WrapperFunctionResult Result;
-  char *DataPtr =
-      WrapperFunctionResult::allocate(Result, SPSArgListT::size(Args...));
-  SPSOutputBuffer OB(DataPtr, Result.size());
+  auto Result = WrapperFunctionResult::allocate(SPSArgListT::size(Args...));
+  SPSOutputBuffer OB(Result.data(), Result.size());
   if (!SPSArgListT::serialize(OB, Args...))
     return make_error<StringError>(
         "Error serializing arguments to blob in call");
-  return Result;
+  return std::move(Result);
 }
+
+template <typename RetT> class WrapperFunctionHandlerCaller {
+public:
+  template <typename HandlerT, typename ArgTupleT, std::size_t... I>
+  static decltype(auto) call(HandlerT &&H, ArgTupleT &Args,
+                             std::index_sequence<I...>) {
+    return std::forward<HandlerT>(H)(std::get<I>(Args)...);
+  }
+};
+
+template <> class WrapperFunctionHandlerCaller<void> {
+public:
+  template <typename HandlerT, typename ArgTupleT, std::size_t... I>
+  static SPSEmpty call(HandlerT &&H, ArgTupleT &Args,
+                       std::index_sequence<I...>) {
+    std::forward<HandlerT>(H)(std::get<I>(Args)...);
+    return SPSEmpty();
+  }
+};
 
 template <typename WrapperFunctionImplT,
           template <typename> class ResultSerializer, typename... SPSTagTs>
@@ -151,8 +168,11 @@ public:
       return WrapperFunctionResult::createOutOfBandError(
           "Could not deserialize arguments for wrapper function call");
 
-    if (auto Result = ResultSerializer<RetT>::serialize(
-            call(std::forward<HandlerT>(H), Args, ArgIndices{})))
+    auto HandlerResult = WrapperFunctionHandlerCaller<RetT>::call(
+        std::forward<HandlerT>(H), Args, ArgIndices{});
+
+    if (auto Result = ResultSerializer<decltype(HandlerResult)>::serialize(
+            std::move(HandlerResult)))
       return std::move(*Result);
     else
       return WrapperFunctionResult::createOutOfBandError(
@@ -167,11 +187,6 @@ private:
     return SPSArgList<SPSTagTs...>::deserialize(IB, std::get<I>(Args)...);
   }
 
-  template <typename HandlerT, std::size_t... I>
-  static decltype(auto) call(HandlerT &&H, ArgTuple &Args,
-                             std::index_sequence<I...>) {
-    return std::forward<HandlerT>(H)(std::get<I>(Args)...);
-  }
 };
 
 // Map function references to function types.
@@ -288,9 +303,9 @@ public:
     detail::ResultDeserializer<SPSRetTagT, RetT>::makeSafe(Result);
 
     if (ORC_RT_UNLIKELY(!&__orc_rt_jit_dispatch_ctx))
-      return make_error<StringError>("__orc_jtjit_dispatch_ctx not set");
+      return make_error<StringError>("__orc_rt_jit_dispatch_ctx not set");
     if (ORC_RT_UNLIKELY(!&__orc_rt_jit_dispatch))
-      return make_error<StringError>("__orc_jtjit_dispatch not set");
+      return make_error<StringError>("__orc_rt_jit_dispatch not set");
 
     auto ArgBuffer =
         detail::serializeViaSPSToWrapperFunctionResult<SPSArgList<SPSTagTs...>>(
