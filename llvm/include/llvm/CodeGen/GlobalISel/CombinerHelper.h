@@ -553,6 +553,12 @@ public:
   /// or false constant based off of KnownBits information.
   bool matchICmpToTrueFalseKnownBits(MachineInstr &MI, int64_t &MatchInfo);
 
+  /// \returns true if a G_ICMP \p MI can be replaced with its LHS based off of
+  /// KnownBits information.
+  bool
+  matchICmpToLHSKnownBits(MachineInstr &MI,
+                          std::function<void(MachineIRBuilder &)> &MatchInfo);
+
   bool matchBitfieldExtractFromSExtInReg(
       MachineInstr &MI, std::function<void(MachineIRBuilder &)> &MatchInfo);
   /// Match: and (lshr x, cst), mask -> ubfx x, cst, width
@@ -588,19 +594,6 @@ public:
   bool tryEmitMemcpyInline(MachineInstr &MI);
 
 private:
-  // Memcpy family optimization helpers.
-  bool tryEmitMemcpyInline(MachineInstr &MI, Register Dst, Register Src,
-                           uint64_t KnownLen, Align DstAlign, Align SrcAlign,
-                           bool IsVolatile);
-  bool optimizeMemcpy(MachineInstr &MI, Register Dst, Register Src,
-                      uint64_t KnownLen, uint64_t Limit, Align DstAlign,
-                      Align SrcAlign, bool IsVolatile);
-  bool optimizeMemmove(MachineInstr &MI, Register Dst, Register Src,
-                       uint64_t KnownLen, Align DstAlign, Align SrcAlign,
-                       bool IsVolatile);
-  bool optimizeMemset(MachineInstr &MI, Register Dst, Register Val,
-                      uint64_t KnownLen, Align DstAlign, bool IsVolatile);
-
   /// Given a non-indexed load or store instruction \p MI, find an offset that
   /// can be usefully and legally folded into it as a post-indexing operation.
   ///
